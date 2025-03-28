@@ -1,0 +1,28 @@
+[package]
+name = "netui"
+version = "0.1.0"
+authors = ["yousfi saad <yousfi.saad@gmail.com>"]
+license = "MIT"
+edition = "2021"
+keywords = ["terminal", "ui", "rust", "tui", "network", "monitor", "ARP"]
+license-file = "LICENSE.md"
+repository = "https://github.com/yousfiSaad/netui.git"
+
+[dependencies]
+chrono = "0.4.39"
+clap = { version = "4.5.34", features = ["derive"] }
+color-eyre = "0.6.3"
+crossterm = { version = "0.28.1", features = ["event-stream"] }
+directories = "6.0.0"
+futures = "0.3.31"
+itertools = "0.14.0"
+lazy_static = "1.5.0"
+pnet = "0.35.0"
+pnet_datalink = "0.35.0"
+ratatui = "0.29.0"
+ringbuf = "0.4.7"
+tokio = { version = "1.40.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-error = "0.2.1"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+unicode-width = "0.2.0"
