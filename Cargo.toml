@@ -4,9 +4,10 @@ version = "0.1.0"
 authors = ["yousfi saad <yousfi.saad@gmail.com>"]
 license = "MIT"
 edition = "2021"
-keywords = ["terminal", "ui", "rust", "tui", "network", "monitor", "ARP"]
-license-file = "LICENSE.md"
+keywords = ["cli", "tui", "network", "monitor", "ARP"]
+license-file = "license.txt"
 repository = "https://github.com/yousfiSaad/netui.git"
+description = "NetUI is a Rust-based tui designed to monitor network interfaces. It allows you to send ARP messages via the network interface and listen for packets to show bandwidth stats."
 
 [dependencies]
 chrono = "0.4.39"
