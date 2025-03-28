@@ -1,4 +1,4 @@
-[![Stand With Palestine](https://raw.githubusercontent.com/yousfiSaad/netui/refs/heads/releases/img/stand-with-palestine-banner.svg?token=GHSAT0AAAAAADBIQRF3PK4IR4MZ6BGWJAP2Z7GCAQA)](#)
+[![Stand With Palestine](https://raw.githubusercontent.com/yousfiSaad/netui/refs/heads/releases/img/stand-with-palestine-banner.svg)](#)
 
 # NetUI
 
