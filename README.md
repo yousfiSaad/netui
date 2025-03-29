@@ -10,31 +10,32 @@ NetUI is a Rust-based interactive terminal user interface designed to monitor ne
 
 To install and run NetUI, ensure that you have Rust and Cargo installed on your system. Follow these steps:
 
-1. Clone the repository:
+- Install from crates.io:
 
-   ```sh
-   git clone https://github.com/yousfiSaad/netui.git
-   cd netui
-   ```
+  ```sh
+  cargo install netui
+  ```
 
-2. Build the project using Cargo:
+- or Clone the repository and build from source:
 
-   ```sh
-   cargo build --release
-   ```
+  ```sh
+  git clone https://github.com/yousfiSaad/netui.git
+  cd netui
 
-3. Run the compiled binary:
-   ```sh
-   sudo ./target/release/netui
-   ```
+  cargo build --release
+  ```
 
 ## Use the App
 
 ```sh
-./target/release/netui --name eth0
+sudo ./target/release/netui --name eth0
+# or
+sudo netui --name eth0
+# or
+sudo `which netui` --name eth0
 ```
 
-This will start the program and watch for ARP packets on the `eth0` interface.
+This will start the program and watch for packets on the `eth0` interface.
 
 ### Send ARP Messages
 
