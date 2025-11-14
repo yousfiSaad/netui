@@ -8,22 +8,22 @@ NetUI is a Rust-based interactive terminal user interface designed to monitor ne
 
 ## Installation
 
-To install and run NetUI, ensure that you have Rust and Cargo installed on your system. Follow these steps:
+To install and run NetUI, ensure that you have Rust and Cargo installed on your system.
 
-- Install from crates.io:
+### Install from GitHub
 
-  ```sh
-  cargo install netui
-  ```
+```sh
+cargo install --git https://github.com/yousfiSaad/netui.git
+```
 
-- or Clone the repository and build from source:
+### Build from Source
 
-  ```sh
-  git clone https://github.com/yousfiSaad/netui.git
-  cd netui
+```sh
+git clone https://github.com/yousfiSaad/netui.git
+cd netui
 
-  cargo build --release
-  ```
+cargo build --release
+```
 
 ## Use the App
 
@@ -52,14 +52,12 @@ The program also listens to packets on the specified interface and calculates th
 - **Packet Listening**: Listen to packets on the specified interface.
 - **Bandwidth Calculation**: Calculate the bandwidth of sent and received packets.
 
-## Contributing and Code of Conduct
+## License
 
-We welcome contributions from the community! To contribute, follow these steps:
+**Copyright © 2024 YOUSFI Saad. All rights reserved.**
 
-1. Fork the repository.
-2. Create a new branch for your feature or bug fix: `git checkout -b feature/your-feature`
-3. Commit your changes: `git commit -am 'Add some feature'`
-4. Push to the branch: `git push origin feature/your-feature`
-5. Open a pull request detailing your changes.
+This software is proprietary and protected by copyright laws and international treaties. Unauthorized reproduction or distribution of this software, or any portion of it, may result in severe civil and criminal penalties, and will be prosecuted to the maximum extent possible under the law.
 
-Please ensure that your contributions follow our code of conduct, which encourages respect and collaboration within our community.
+This software is provided "as is" without warranty of any kind. See [license.txt](license.txt) for full terms.
+
+For licensing inquiries or permissions, please contact: **yousfi.saad@gmail.com**
