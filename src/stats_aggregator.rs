@@ -49,7 +49,7 @@ impl StatsAggregator {
                 Direction::Outgoing => {
                     vec![acc[0] + si, acc[1], acc[2], acc[3]]
                 }
-                Direction::Incomming => {
+                Direction::Incoming => {
                     vec![acc[0], acc[1] + si, acc[2], acc[3]]
                 }
                 Direction::Local => {
@@ -79,7 +79,7 @@ impl StatsAggregator {
             item.iter().for_each(|(k, v)| {
                 let (mut src, mut dst) = (k.src_ip, k.dst_ip);
                 let is_local = k.direction == Direction::Local;
-                if Direction::Incomming == k.direction || (is_local && src > dst) {
+                if Direction::Incoming == k.direction || (is_local && src > dst) {
                     (src, dst) = (dst, src);
                 }
                 let pair = IpPair {
@@ -92,7 +92,7 @@ impl StatsAggregator {
                     Direction::Outgoing => {
                         speed_pair_to_add.output += v.size;
                     }
-                    Direction::Incomming => {
+                    Direction::Incoming => {
                         speed_pair_to_add.input += v.size;
                     }
                     Direction::Local => {
@@ -290,7 +290,7 @@ impl Speed {
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct StatKey {
     pub src_port: u16,
-    pub sdt_port: u16,
+    pub dst_port: u16,
     pub src_ip: Ipv4Addr,
     pub dst_ip: Ipv4Addr,
     pub direction: Direction,
@@ -300,7 +300,7 @@ pub struct StatKey {
 pub enum Direction {
     None,
     Outgoing,
-    Incomming,
+    Incoming,
     Local,
 }
 
@@ -311,7 +311,7 @@ pub struct StatValues {
 
 const B_1024: f64 = 1024f64;
 fn format_size(bits: u128) -> String {
-    let bits = f64::from(bits as u32);
+    let bits = bits as f64;
     let kbits = if bits < B_1024 {
         return format!("{:.2} Bit/s", bits);
     } else {

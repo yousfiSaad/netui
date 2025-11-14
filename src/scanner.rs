@@ -5,7 +5,6 @@ use pnet::packet::{
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
-    process,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -77,10 +76,10 @@ impl Scanner {
         let pair = match pnet_datalink::channel(&nif, channel_config) {
             Ok(pnet_datalink::Channel::Ethernet(tx, rx)) => (tx, rx),
             Ok(_) => {
-                process::exit(1);
+                return Err("Unsupported channel type (expected Ethernet)".into());
             }
-            Err(_error) => {
-                process::exit(1);
+            Err(error) => {
+                return Err(format!("Failed to create datalink channel: {}", error).into());
             }
         };
         Ok(pair)
@@ -198,7 +197,9 @@ impl Scanner {
         for ip_addr in ip_network.iter() {
             if let IpAddr::V4(ipv4_address) = ip_addr {
                 sleep(Duration::from_millis(37)).await;
-                Self::send_arp_request(datalink_channel_tx, nif, ipv4_address);
+                if let Err(e) = Self::send_arp_request(datalink_channel_tx, nif, ipv4_address) {
+                    tracing::warn!("Failed to send ARP request to {}: {}", ipv4_address, e);
+                }
             }
         }
         sender
@@ -243,20 +244,16 @@ impl Scanner {
         tx: &mut Box<dyn DataLinkSender>,
         interface: &NetworkInterface,
         target_ip: Ipv4Addr,
-    ) {
+    ) -> AppResult<()> {
         let mut ethernet_buffer = vec![0u8; 42];
-        let mut ethernet_packet =
-            MutableEthernetPacket::new(&mut ethernet_buffer).unwrap_or_else(|| {
-                // eprintln!("Could not build Ethernet packet");
-                process::exit(1);
-            });
+        let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer)
+            .ok_or("Could not build Ethernet packet")?;
+
+        let source_mac = interface
+            .mac
+            .ok_or("Interface should have a MAC address")?;
 
         let target_mac_broadcast = MacAddr::broadcast();
-        let source_mac = interface.mac.unwrap_or_else(|| {
-            // eprintln!("Interface should have a MAC address");
-            process::exit(1);
-        });
-
         ethernet_packet.set_destination(target_mac_broadcast);
         ethernet_packet.set_source(source_mac);
 
@@ -264,12 +261,10 @@ impl Scanner {
         ethernet_packet.set_ethertype(selected_ethertype);
 
         let mut arp_buffer = [0u8; 28];
-        let mut arp_packet = MutableArpPacket::new(&mut arp_buffer).unwrap_or_else(|| {
-            // eprintln!("Could not build ARP packet");
-            process::exit(1);
-        });
+        let mut arp_packet =
+            MutableArpPacket::new(&mut arp_buffer).ok_or("Could not build ARP packet")?;
 
-        let source_ip = Self::find_source_ip(interface);
+        let source_ip = Self::find_source_ip(interface)?;
 
         arp_packet.set_hardware_type(ArpHardwareTypes::Ethernet);
         arp_packet.set_protocol_type(EtherTypes::Ipv4);
@@ -287,19 +282,17 @@ impl Scanner {
             ethernet_packet.to_immutable().packet(),
             Some(interface.clone()),
         );
+        Ok(())
     }
 
-    fn find_source_ip(network_interface: &NetworkInterface) -> Ipv4Addr {
+    fn find_source_ip(network_interface: &NetworkInterface) -> AppResult<Ipv4Addr> {
         let potential_network = network_interface
             .ips
             .iter()
             .find(|network| network.is_ipv4());
         match potential_network.map(|network| network.ip()) {
-            Some(IpAddr::V4(ipv4_addr)) => ipv4_addr,
-            _ => {
-                // eprintln!("Expected IPv4 address on network interface");
-                process::exit(1);
-            }
+            Some(IpAddr::V4(ipv4_addr)) => Ok(ipv4_addr),
+            _ => Err("Expected IPv4 address on network interface".into()),
         }
     }
 
@@ -350,7 +343,7 @@ impl Scanner {
         ) {
             (true, true) => stats_aggregator::Direction::Local,
             (true, false) => stats_aggregator::Direction::Outgoing,
-            (false, true) => stats_aggregator::Direction::Incomming,
+            (false, true) => stats_aggregator::Direction::Incoming,
             (false, false) => stats_aggregator::Direction::None,
         };
 
@@ -361,7 +354,7 @@ impl Scanner {
                     key: stats_aggregator::StatKey {
                         direction,
                         src_port: message.get_source(),
-                        sdt_port: message.get_destination(),
+                        dst_port: message.get_destination(),
                         src_ip,
                         dst_ip,
                     },
@@ -376,7 +369,7 @@ impl Scanner {
                     key: stats_aggregator::StatKey {
                         direction,
                         src_port: datagram.get_source(),
-                        sdt_port: datagram.get_destination(),
+                        dst_port: datagram.get_destination(),
                         src_ip,
                         dst_ip,
                     },
