@@ -15,12 +15,17 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             // Constraint::Percentage(50),
             Constraint::Length(3),
         ]);
-    if let [table_area, 
+    if let [table_area,
     // middle_area,
     footer_area] = *layout.split(frame.area()) {
         render_hosts_table(frame, table_area, app);
         render_footer(frame, footer_area, app);
         // render_middle(frame, middle_area, app);
+
+        // Render help overlay if help is shown
+        if app.show_help {
+            render_help(frame);
+        }
     }
 }
 
@@ -73,4 +78,68 @@ fn render_widget(frame: &mut Frame, title: &str, content: &str, area: Rect) {
         ),
         area,
     );
+}
+
+fn render_help(frame: &mut Frame) {
+    let help_text = vec![
+        "NetUI - Network Interface Monitor",
+        "",
+        "KEYBINDINGS:",
+        "  q, ESC       - Quit application",
+        "  Ctrl+C       - Quit application",
+        "  ?, F1        - Show/hide this help",
+        "",
+        "  s            - Send ARP packets (scan network)",
+        "  j            - Navigate down (vim-style)",
+        "  k            - Navigate up (vim-style)",
+        "  h            - Navigate left (vim-style)",
+        "  l            - Navigate right (vim-style)",
+        "  c, C         - Clean selected host and older entries",
+        "",
+        "FEATURES:",
+        "  • Real-time network monitoring",
+        "  • ARP host discovery",
+        "  • Bandwidth tracking per host",
+        "  • Upload/Download speed display",
+        "",
+        "Press any key to close this help...",
+    ];
+
+    // Center the help popup
+    let area = centered_rect(60, 60, frame.area());
+
+    // Create the help paragraph
+    let paragraph = Paragraph::new(help_text.join("\n"))
+        .block(
+            Block::bordered()
+                .title(" Help ")
+                .border_type(BorderType::Double)
+                .border_style(Style::default().fg(tailwind::GREEN.c400))
+        )
+        .style(Style::default().bg(tailwind::SLATE.c950))
+        .alignment(Alignment::Left);
+
+    frame.render_widget(ratatui::widgets::Clear, area);
+    frame.render_widget(paragraph, area);
+}
+
+/// Create a centered rectangle
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }

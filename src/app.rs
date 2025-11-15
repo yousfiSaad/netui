@@ -19,6 +19,8 @@ pub struct App {
     /// Is the application running?
     pub running: bool,
     pub sending_arps: bool,
+    /// Show help screen
+    pub show_help: bool,
     /// hosts
     pub hosts: Vec<Host>,
     pub table_state: TableState,
@@ -53,6 +55,7 @@ impl App {
         Ok(Self {
             running: true,
             sending_arps: false,
+            show_help: false,
             hosts: vec![],
             interface: "".to_string(),
             table_state: TableState::default(),
@@ -160,30 +163,38 @@ impl App {
         match key_event.code {
             // Exit application on `ESC` or `q`
             KeyCode::Esc | KeyCode::Char('q') => {
-                self.quit();
+                if self.show_help {
+                    self.show_help = false;
+                } else {
+                    self.quit();
+                }
+            }
+            // Show help on `?` or `F1`
+            KeyCode::Char('?') | KeyCode::F(1) => {
+                self.show_help = !self.show_help;
             }
             // Exit application on `Ctrl-C`
             KeyCode::Char('c') | KeyCode::Char('C') => {
                 if key_event.modifiers == KeyModifiers::CONTROL {
                     self.quit();
-                } else {
+                } else if !self.show_help {
                     self.clean_host_and_olders();
                 }
             }
-            // Counter handlers
-            KeyCode::Char('j') => {
+            // Counter handlers (disabled when help is showing)
+            KeyCode::Char('j') if !self.show_help => {
                 self.next_row();
             }
-            KeyCode::Char('k') => {
+            KeyCode::Char('k') if !self.show_help => {
                 self.previous_row();
             }
-            KeyCode::Char('l') => {
+            KeyCode::Char('l') if !self.show_help => {
                 self.next_column();
             }
-            KeyCode::Char('h') => {
+            KeyCode::Char('h') if !self.show_help => {
                 self.previous_column();
             }
-            KeyCode::Char('s') => {
+            KeyCode::Char('s') if !self.show_help => {
                 if !self.sending_arps {
                     self.scanner.send_arp_packets();
                 }
