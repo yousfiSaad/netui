@@ -50,7 +50,7 @@ impl Scanner {
             .send(Event::Scanner(ScannerEvent::InterfaceName(
                 nif.name.clone(),
             )))
-            .unwrap();
+            .map_err(|e| format!("Failed to send interface name: {}", e))?;
 
         let (scanner_input_tx, scanner_input_rx) = unbounded_channel::<ScannerInputEvent>();
 
@@ -189,9 +189,13 @@ impl Scanner {
         scanner_outputs: mpsc::UnboundedSender<Event>,
         datalink_channel_tx: &mut Box<dyn DataLinkSender>,
     ) {
-        scanner_outputs
+        if let Err(e) = scanner_outputs
             .send(Event::Scanner(crate::event::ScannerEvent::BeginScan))
-            .unwrap();
+        {
+            tracing::error!("Failed to send BeginScan event: {}", e);
+            return;
+        }
+
         let sender_clone = scanner_outputs.clone();
         let sender = sender_clone;
         for ip_addr in ip_network.iter() {
@@ -202,9 +206,10 @@ impl Scanner {
                 }
             }
         }
-        sender
-            .send(Event::Scanner(crate::event::ScannerEvent::Complete))
-            .unwrap();
+
+        if let Err(e) = sender.send(Event::Scanner(crate::event::ScannerEvent::Complete)) {
+            tracing::error!("Failed to send Complete event: {}", e);
+        }
     }
 
     fn find_interface(interface_name: String) -> AppResult<pnet_datalink::NetworkInterface> {
@@ -297,9 +302,12 @@ impl Scanner {
     }
 
     pub fn send_arp_packets(&self) {
-        self.scanner_input_tx
+        if let Err(e) = self
+            .scanner_input_tx
             .send(ScannerInputEvent::StartScanning)
-            .unwrap();
+        {
+            tracing::error!("Failed to send StartScanning event: {}", e);
+        }
     }
 
     fn get_host_infos(buffer: &[u8], def_nif: &NetworkInterface) -> Option<Host> {

@@ -225,11 +225,13 @@ while app.running {
 
 ## User Interface and Keybindings
 
-### Keyboard Controls (src/app.rs:159-195)
+### Keyboard Controls (src/app.rs:162-212)
 
-- **`q`** or **`ESC`**: Quit application
+- **`q`** or **`ESC`**: Quit application (close help screen if open)
 - **`Ctrl+C`**: Quit application
+- **`?`** or **`F1`**: Show/hide help screen
 - **`s`**: Send ARP packets to scan network (if not already scanning)
+- **`e`** or **`E`**: Export discovered hosts to CSV file
 - **`j`**: Navigate to next row (vim-style)
 - **`k`**: Navigate to previous row (vim-style)
 - **`l`**: Navigate to next column (vim-style)
@@ -278,6 +280,25 @@ Each host displays:
   - None (other)
 - Calculates speed per host from accumulated packet sizes
 
+## Recent Improvements (2024)
+
+### Code Quality
+- **Fixed critical bugs**: Replaced 6 `process::exit()` calls with proper error handling
+- **Fixed typos**: `sdt_port` → `dst_port`, `Incomming` → `Incoming`
+- **Fixed integer overflow**: In `format_size()` function
+- **Removed all `.unwrap()` calls**: Replaced with proper error handling and logging
+- **Removed commented-out code**: Cleaned up codebase
+- **Zero clippy warnings**: All code quality checks pass
+
+### New Features
+- **Help Screen**: Interactive help overlay with `?` or `F1`
+- **CSV Export**: Export hosts to timestamped CSV files with `e` key
+- **Test Suite**: 9 unit tests covering core components
+
+### Security & Dependencies
+- **Updated 121 dependencies**: Latest compatible versions
+- **Fixed vulnerabilities**: Addressed GitHub-reported security issues
+
 ## Common Tasks for AI Assistants
 
 ### Adding a New Feature
@@ -286,8 +307,9 @@ Each host displays:
 2. **Update data structures**: Modify `App` or `Host` if needed
 3. **Add event handling**: Update `handle_key_events` or `handle_worker_events`
 4. **Update UI**: Modify `ui.rs` or `hosts_table.rs` for display changes
-5. **Test thoroughly**: Ensure async operations work correctly
-6. **Update documentation**: Keep README.md and this file current
+5. **Add tests**: Create tests in `tests/` directory
+6. **Test thoroughly**: Ensure async operations work correctly
+7. **Update documentation**: Keep README.md and this file current
 
 ### Debugging
 

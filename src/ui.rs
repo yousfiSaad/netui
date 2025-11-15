@@ -10,30 +10,17 @@ use crate::hosts_table::HostsTable;
 pub fn render(app: &mut App, frame: &mut Frame) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(vec![
-            Constraint::Percentage(100),
-            // Constraint::Percentage(50),
-            Constraint::Length(3),
-        ]);
-    if let [table_area,
-    // middle_area,
-    footer_area] = *layout.split(frame.area()) {
+        .constraints(vec![Constraint::Percentage(100), Constraint::Length(3)]);
+
+    if let [table_area, footer_area] = *layout.split(frame.area()) {
         render_hosts_table(frame, table_area, app);
         render_footer(frame, footer_area, app);
-        // render_middle(frame, middle_area, app);
 
         // Render help overlay if help is shown
         if app.show_help {
             render_help(frame);
         }
     }
-}
-
-fn _render_middle(frame: &mut Frame<'_>, middle_area: Rect, app: &mut App) {
-    let items = app.stats_aggregator.connections_strs();
-    // frame.render_widget(Text::from(items.len().to_string()), middle_area);
-    let paragraph = Paragraph::new(Text::from_iter(items)).block(Block::new().title("connections"));
-    frame.render_widget(paragraph, middle_area);
 }
 
 fn render_hosts_table(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -90,6 +77,7 @@ fn render_help(frame: &mut Frame) {
         "  ?, F1        - Show/hide this help",
         "",
         "  s            - Send ARP packets (scan network)",
+        "  e, E         - Export hosts to CSV file",
         "  j            - Navigate down (vim-style)",
         "  k            - Navigate up (vim-style)",
         "  h            - Navigate left (vim-style)",

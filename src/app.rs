@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::{error, net::Ipv4Addr};
+use std::{error, fs::File, io::Write, net::Ipv4Addr};
 
 use crate::{
     event::ScannerEvent,
@@ -199,6 +199,12 @@ impl App {
                     self.scanner.send_arp_packets();
                 }
             }
+            // Export hosts to CSV
+            KeyCode::Char('e') | KeyCode::Char('E') if !self.show_help => {
+                if let Err(e) = self.export_hosts() {
+                    tracing::error!("Failed to export hosts: {}", e);
+                }
+            }
             // Other handlers you could add here.
             _ => {}
         }
@@ -216,5 +222,49 @@ impl App {
             .collect();
 
         Some(())
+    }
+
+    /// Export discovered hosts to a CSV file
+    pub fn export_hosts(&self) -> AppResult<()> {
+        if self.hosts.is_empty() {
+            return Err("No hosts to export".into());
+        }
+
+        // Generate timestamped filename
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("netui_scan_{}.csv", timestamp);
+
+        // Create and write to file
+        let mut file = File::create(&filename)?;
+
+        // Write CSV header
+        writeln!(
+            file,
+            "Timestamp,IP Address,MAC Address,Hostname,Download Speed,Upload Speed"
+        )?;
+
+        // Write each host
+        for host in &self.hosts {
+            let hostname = host.hostname.as_deref().unwrap_or("N/A");
+            let (download, upload) = if let Some(speed) = &host.speed {
+                (speed.to_string_input(), speed.to_string_output())
+            } else {
+                ("N/A".to_string(), "N/A".to_string())
+            };
+
+            writeln!(
+                file,
+                "{},{},{},{},{},{}",
+                host.time.format("%Y-%m-%d %H:%M:%S"),
+                host.ipv4,
+                host.mac,
+                hostname,
+                download,
+                upload
+            )?;
+        }
+
+        tracing::info!("Exported {} hosts to {}", self.hosts.len(), filename);
+        Ok(())
     }
 }
