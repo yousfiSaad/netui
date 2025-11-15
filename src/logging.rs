@@ -17,7 +17,7 @@ lazy_static! {
 }
 
 fn project_directory() -> Option<ProjectDirs> {
-    ProjectDirs::from("com", "kdheepak", env!("CARGO_PKG_NAME"))
+    ProjectDirs::from("com", "yousfisaad", env!("CARGO_PKG_NAME"))
 }
 
 pub fn get_data_dir() -> PathBuf {

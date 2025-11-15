@@ -63,20 +63,20 @@ impl EventHandler {
                     break;
                   }
                   _ = tick_delay => {
-                    sender_clone.send(Event::Tick).unwrap();
+                    let _ = sender_clone.send(Event::Tick);
                   }
                   Some(Ok(evt)) = crossterm_event => {
                     match evt {
                       CrosstermEvent::Key(key) => {
                         if key.kind == crossterm::event::KeyEventKind::Press {
-                          sender_clone.send(Event::Key(key)).unwrap();
+                          let _ = sender_clone.send(Event::Key(key));
                         }
                       },
                       CrosstermEvent::Mouse(mouse) => {
-                        sender_clone.send(Event::Mouse(mouse)).unwrap();
+                        let _ = sender_clone.send(Event::Mouse(mouse));
                       },
                       CrosstermEvent::Resize(x, y) => {
-                        sender_clone.send(Event::Resize(x, y)).unwrap();
+                        let _ = sender_clone.send(Event::Resize(x, y));
                       },
                       CrosstermEvent::FocusLost => {
                       },
@@ -104,8 +104,7 @@ impl EventHandler {
         self.receiver
             .recv()
             .await
-            .ok_or(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            .ok_or(Box::new(std::io::Error::other(
                 "This is an IO error",
             )))
     }
