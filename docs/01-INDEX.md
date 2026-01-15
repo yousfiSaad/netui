@@ -96,6 +96,41 @@ This documentation covers enhancing NetUI with eBPF (Extended Berkeley Packet Fi
 
 ---
 
+### 07-EBPF-FEATURES.md - Feature Roadmap
+
+**Purpose**: New capabilities unlocked by eBPF migration
+
+**Covers**:
+- Performance improvements (10x throughput, <1% CPU)
+- TCP metrics via kprobes (RTT, retransmits, connection states)
+- L7 protocol detection (DNS, HTTP, TLS, SSH, QUIC)
+- Real-time anomaly detection (port scans, ARP spoofing, SYN floods)
+- Connection tracking with full TCP state machine visibility
+- Per-flow kernel statistics
+- Historical statistics and export options
+- Implementation effort estimates
+
+**Reading time**: 30-45 minutes
+
+---
+
+### 00-REFACTORING-PLAN.md - Pre-Migration Work
+
+**Purpose**: Required refactoring before eBPF implementation
+
+**Covers**:
+- Error handling fixes (remove `process::exit` calls)
+- Type abstraction (custom `MacAddr`)
+- Backend trait extraction (`PacketSource`/`PacketSink`)
+- Scanner refactoring for backend flexibility
+- Feature flags for conditional compilation
+
+**Reading time**: 20-30 minutes
+
+**Note**: Complete this plan before starting eBPF implementation.
+
+---
+
 ## Reading Paths
 
 ### Quick Start (2 hours)
@@ -183,12 +218,14 @@ For macOS developers:
 
 | Document | Est. Lines | Code Samples |
 |----------|------------|--------------|
+| 00-REFACTORING-PLAN.md | ~260 | 10+ |
 | 02-README.md | ~400 | 15+ |
 | 03-IMPLEMENTATION-GUIDE.md | ~500 | 20+ |
 | 04-CODE-REFERENCE.md | ~600 | 30+ |
 | 05-ARCHITECTURE-DECISIONS.md | ~500 | 15+ |
 | 06-COMMANDS.md | ~350 | 80+ |
-| **Total** | **~2,350** | **160+** |
+| 07-EBPF-FEATURES.md | ~350 | 10+ |
+| **Total** | **~2,960** | **180+** |
 
 ---
 
