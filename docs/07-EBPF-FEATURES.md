@@ -238,18 +238,87 @@ With kernel-side aggregation, efficient long-term storage becomes feasible.
 
 ## Feature Implementation Effort
 
-Post-migration effort estimates.
+Post-migration effort estimates, leveraging existing libraries.
 
-| Feature | Effort | eBPF Component | Priority |
-|---------|--------|----------------|----------|
-| RTT display | 2-3 days | Kprobe: `tcp_rcv_established` | High |
-| Retransmit counter | 1-2 days | Kprobe: `tcp_retransmit_skb` | High |
-| Protocol column | 3-4 days | XDP signature matching | Medium |
-| Connection states | 2-3 days | Kprobe: `tcp_set_state` | Medium |
-| Port scan alerts | 2-3 days | BPF map + threshold | Medium |
-| ARP spoof detection | 1-2 days | XDP ARP tracking | Medium |
-| Historical stats | 3-4 days | Ring buffer + SQLite | Low |
-| Grafana export | 2-3 days | Prometheus metrics | Low |
+### Libraries That Reduce Effort
+
+| Library | Replaces | Effort Saved |
+|---------|----------|--------------|
+| `etherparse` | Manual packet parsing | 2 days |
+| `parse_layer7` | L7 signature matching | 2-3 days |
+| Aya kprobe examples | RTT implementation | 1-2 days |
+| **Total saved** | | **~5-7 days** |
+
+### Updated Effort Estimates
+
+| Feature | Without Libraries | With Libraries | eBPF Component |
+|---------|-------------------|----------------|----------------|
+| RTT display | 2-3 days | **1 day** | Kprobe: `tcp_rcv_established` |
+| Retransmit counter | 1-2 days | **1 day** | Kprobe: `tcp_retransmit_skb` |
+| Protocol column | 3-4 days | **1 day** | XDP + `parse_layer7` |
+| Connection states | 2-3 days | **1-2 days** | Kprobe: `tcp_set_state` |
+| Port scan alerts | 2-3 days | **2 days** | BPF map + threshold |
+| ARP spoof detection | 1-2 days | **1 day** | XDP ARP tracking |
+| Historical stats | 3-4 days | **2-3 days** | Ring buffer + SQLite |
+| Grafana export | 2-3 days | **2 days** | Prometheus metrics |
+
+### Leveraged Libraries
+
+```toml
+[dependencies]
+# Packet parsing (zero-copy, no_std compatible)
+etherparse = "0.15"
+
+# L7 protocol detection
+parse_layer7 = "0.3"  # DNS, TLS, HTTP, DHCP, NTP
+
+# Alternative L7 options:
+# protolens = "x.x"  # TCP reassembly + SMTP, POP3, IMAP
+# xailyser = "x.x"   # 12 protocols, extensible
+```
+
+### L7 Detection Strategy (Updated)
+
+Instead of building kernel-space DPI:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Kernel (XDP/TC)                                         │
+│ ┌─────────────────────────────────────────────────────┐ │
+│ │ 1. Port-based classification (always)              │ │
+│ │ 2. Sample first N bytes of payload (1% of flows)   │ │
+│ │ 3. Send sample to user-space via ring buffer       │ │
+│ └─────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│ User-space                                              │
+│ ┌─────────────────────────────────────────────────────┐ │
+│ │ parse_layer7::identify(&payload_sample)            │ │
+│ │ → Protocol::Tls { sni: "example.com" }             │ │
+│ │ → Protocol::Http { method: "GET", path: "/" }      │ │
+│ │ → Protocol::Dns { query: "api.example.com" }       │ │
+│ └─────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- No complex verifier issues in kernel
+- Easy to add new protocols (just update library)
+- Rich metadata (SNI, HTTP paths, DNS queries)
+
+### Reference Projects
+
+Study these for architecture patterns:
+
+| Project | GitHub | Relevance |
+|---------|--------|-----------|
+| **RustiFlow** | matissecallewaert/RustiFlow | Aya + flow extraction for IDS |
+| **RustNet** | domcyrus/rustnet | TUI + eBPF monitor (very similar!) |
+| **Huginn Net** | biandratti/huginn-net | TLS/HTTP fingerprinting |
+
+**RustNet** is especially relevant - cross-platform TUI with eBPF on Linux and fallback on other platforms.
 
 ---
 

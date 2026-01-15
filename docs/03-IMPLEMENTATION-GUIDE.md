@@ -421,6 +421,47 @@ netui/
 
 ---
 
+## 7.1 Recommended Dependencies
+
+Leverage existing libraries to reduce implementation effort:
+
+```toml
+[dependencies]
+# eBPF core (Aya 0.13+)
+aya = { version = "0.13", optional = true }
+aya-log = { version = "0.2", optional = true }
+
+# Packet parsing - replaces manual parsing in both backends
+etherparse = "0.15"  # Zero-copy, no_std compatible
+
+# L7 protocol detection - user-space DPI
+parse_layer7 = "0.3"  # DNS, TLS, HTTP, DHCP, NTP
+
+# Existing (make optional for eBPF-only builds)
+pnet = { version = "0.35.0", optional = true }
+pnet_datalink = { version = "0.35.0", optional = true }
+```
+
+### Why These Libraries
+
+| Library | Purpose | Benefit |
+|---------|---------|---------|
+| `etherparse` | Packet parsing | Faster than pnet, works in both backends |
+| `parse_layer7` | L7 detection | Avoids building DPI from scratch |
+| `aya` | eBPF loader | Pure Rust, excellent developer experience |
+
+### Reference Projects
+
+Study these for implementation patterns:
+
+| Project | Relevance |
+|---------|-----------|
+| **RustNet** (domcyrus/rustnet) | TUI + eBPF monitor, very similar to NetUI |
+| **RustiFlow** | Aya + flow extraction for IDS |
+| **Huginn Net** | TLS/HTTP passive fingerprinting |
+
+---
+
 ## 8. Implementation Roadmap
 
 ### Phase 1: Foundation (Week 1-2)

@@ -156,11 +156,57 @@ pnet-backend = ["pnet", "pnet_datalink"]
 ebpf-backend = ["aya", "aya-log"]
 
 [dependencies]
+# Existing (make optional)
 pnet = { version = "0.35.0", optional = true }
 pnet_datalink = { version = "0.35.0", optional = true }
+
+# eBPF core
 aya = { version = "0.13", optional = true }
 aya-log = { version = "0.2", optional = true }
+
+# Packet parsing (replaces manual parsing, works in both backends)
+etherparse = "0.15"
+
+# L7 protocol detection (user-space, avoids reinventing DPI)
+parse_layer7 = "0.3"
 ```
+
+---
+
+## Leveraged Libraries
+
+Instead of building from scratch, we leverage existing tools:
+
+| Feature | Library | Benefit |
+|---------|---------|---------|
+| eBPF loader | `aya` 0.13 | Pure Rust, excellent API |
+| Packet parsing | `etherparse` | Fast, `no_std` compatible, replaces manual parsing |
+| L7 detection | `parse_layer7` | DNS, TLS, HTTP, DHCP, NTP detection |
+| Ring buffer | Aya `RingBuf` | Built into Aya |
+| Interface discovery | `pnet_datalink` or `netlink-packet-route` | Already available |
+
+### Why These Choices
+
+**etherparse** instead of manual parsing:
+- Zero-copy packet parsing
+- Works in both pnet and eBPF backends
+- `no_std` compatible (could use in eBPF if needed)
+- Actively maintained
+
+**parse_layer7** instead of building DPI:
+- Supports DNS, TLS (with SNI), HTTP, DHCP, Modbus, NTP, Bitcoin
+- User-space only (eBPF sends payload samples)
+- Avoids complex signature matching in kernel
+
+### Reference Projects
+
+Similar projects to study for architecture patterns:
+
+| Project | Description |
+|---------|-------------|
+| **RustiFlow** | Aya + flow extraction for IDS |
+| **RustNet** | TUI + eBPF network monitor (very similar to NetUI) |
+| **Huginn Net** | TLS/HTTP passive fingerprinting |
 
 ---
 
