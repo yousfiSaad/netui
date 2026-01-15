@@ -1,421 +1,210 @@
-# NetUI eBPF Enhancement - Complete Documentation Index
+# NetUI eBPF Enhancement - Documentation Index
 
-## 📚 Documentation Overview
+## Overview
 
-This comprehensive guide provides everything needed to enhance NetUI (Rust-based network TUI) with eBPF capabilities for production-grade kernel-space packet monitoring.
+This documentation covers enhancing NetUI with eBPF (Extended Berkeley Packet Filter) for kernel-space network monitoring. The enhancement replaces user-space packet capture (pnet) with XDP/TC hooks for 5-10x performance improvement.
 
 ---
 
-## 📖 Documents Included
+## Documents
 
-### 1. **README-eBPF-Enhancement.md** ⭐ START HERE
+### 02-README.md - Start Here
 
-**Length:** 572 lines | **Reading Time:** 30-45 minutes
+**Purpose**: Overview, quick start, and development setup
 
-Comprehensive overview covering:
+**Covers**:
+- What eBPF adds to NetUI
+- Technology stack (Aya 0.13+, Linux 5.8+)
+- Architecture diagram
+- 5-step quick start
+- macOS development workflow
+- Performance expectations
 
-- Technology stack overview
-- Quick start path (5 steps)
-- Key technologies explained
-- Performance expectations (5-10x improvement)
-- Complete architecture diagram
+**Reading time**: 30-45 minutes
+
+---
+
+### 03-IMPLEMENTATION-GUIDE.md - Technical Reference
+
+**Purpose**: Detailed technical guide for implementation
+
+**Covers**:
+- Current NetUI architecture analysis
+- eBPF program types (XDP, TC, Kprobes)
+- Variable IP header handling
+- Ring buffer design
+- Integration with ScannerEvent and StatsAggregator
+- Project structure
 - 5-phase implementation roadmap
-- Common challenges and solutions
-- Security considerations
-- Debugging tips
-- FAQs and troubleshooting
 
-**Best for:** Getting oriented, understanding scope, planning phases
+**Reading time**: 90-120 minutes
 
 ---
 
-### 2. **netui-ebpf-enhancement-guide.md** 📋 TECHNICAL REFERENCE
+### 04-CODE-REFERENCE.md - Working Code
 
-**Length:** 662 lines | **Reading Time:** 90-120 minutes
+**Purpose**: Copy-paste ready, syntactically correct code samples
 
-Deep-dive technical guide covering:
+**Covers**:
+- Shared types (netui-common crate)
+- XDP packet classifier
+- TC egress hooks
+- User-space loader (Aya 0.13 API)
+- ScannerEvent integration
+- Cargo configuration
+- Build system (xtask)
 
-- NetUI current architecture analysis
-- Detailed eBPF enhancement strategy:
-  - XDP packet classification
-  - TC ingress/egress hooks
-  - TCP state tracking (kprobes)
-  - Ring buffer for event streaming
-- User-space integration patterns
-- Detailed implementation roadmap (8 weeks, 5 phases)
-- Project structure template
-- Key eBPF code patterns:
-  - Per-flow statistics (HashMap)
-  - RTT histograms
-  - Ring buffer design
-- Performance analysis and benchmarks
-- Security model and verifier constraints
-- Integration with existing NetUI
-- Monitoring and debugging strategies
-- Advanced features (L7, DDoS detection, process attribution)
-- Migration path from libpcap
-
-**Best for:** Deep technical understanding, architecture decisions, advanced features
+**Reading time**: 60-90 minutes
 
 ---
 
-### 3. **netui-ebpf-starter-implementation.md** 💻 IMPLEMENTATION GUIDE
+### 05-ARCHITECTURE-DECISIONS.md - Design Rationale
 
-**Length:** 782 lines | **Reading Time:** 120-150 minutes
+**Purpose**: Architecture Decision Records (ADRs) documenting trade-offs
 
-Ready-to-use code and setup guide covering:
+**Covers 10 ADRs**:
+1. XDP + TC dual-hook strategy
+2. Ring buffer over perf buffer
+3. Flow table sizing
+4. Lazy flow cleanup
+5. Tiered L7 classification
+6. Per-event emission
+7. Shared maps multi-interface
+8. Capability-based privileges
+9. Fail-open error handling
+10. Variable IP header support
 
-- Complete project setup with workspace structure
-- Shared data structures (netui-common crate):
-  - NetworkEvent structure
-  - FlowKey and FlowStats
-  - Protocol headers (Ethernet, IPv4, TCP, UDP, ARP)
-  - Helper functions (IP conversion)
-- Full XDP program implementation:
-  - Packet classifier with parsing logic
-  - IPv4, TCP, UDP, ARP handlers
-  - Flow statistics aggregation
-  - Memory-safe access patterns
-- User-space components:
-  - eBPF loader using Aya
-  - Event processor (ring buffer consumer)
-  - Statistics aggregator
-  - TUI integration example
-- Complete Cargo configuration
-- Testing and validation procedures
-
-**Best for:** Getting code working quickly, reference implementation, learning patterns
+**Reading time**: 60-90 minutes
 
 ---
 
-### 4. **netui-ebpf-architecture-decisions.md** 🏗️ DESIGN RATIONALE
+### 06-COMMANDS.md - Cheatsheet
 
-**Length:** 620 lines | **Reading Time:** 60-90 minutes
+**Purpose**: Quick reference for all commands
 
-10 Architecture Decision Records (ADRs) documenting:
+**Covers**:
+- Environment verification
+- macOS development setup
+- Project creation and build
+- Loading and attaching programs
+- Monitoring with bpftool
+- Debugging
+- Testing with traffic generation
+- Cleanup
 
-- **ADR-001:** XDP vs TC trade-offs (Performance + Coverage)
-- **ADR-002:** Ring Buffer vs Perf Buffer (Efficiency + Ordering)
-- **ADR-003:** Flow table sizing (10k flows, LRU eviction)
-- **ADR-004:** Flow timeout and cleanup (Lazy deletion)
-- **ADR-005:** L7 classification strategy (Tiered approach)
-- **ADR-006:** Real-time vs aggregated statistics
-- **ADR-007:** Multi-interface support (Shared maps)
-- **ADR-008:** Privilege requirements (CAP_BPF vs CAP_SYS_ADMIN)
-- **ADR-009:** Error handling (Fail-open principle)
-- **ADR-010:** Testing strategy (Unit + integration)
-
-Each ADR includes:
-
-- Context and options evaluated
-- Decision rationale with pros/cons
-- Implementation consequences
-- Code examples where applicable
-
-**Best for:** Understanding design choices, evaluating alternatives, justifying decisions
+**Reading time**: 20-30 minutes (reference)
 
 ---
 
-### 5. **QUICK-REFERENCE-COMMANDS.md** ⚡ COMMAND CHEATSHEET
+## Reading Paths
 
-**Length:** 632 lines | **Reading Time:** 20-30 minutes (lookup reference)
+### Quick Start (2 hours)
 
-Practical commands for all operations:
+1. 02-README.md (full)
+2. 04-CODE-REFERENCE.md (sections 1-3)
+3. 06-COMMANDS.md (sections 1-4)
 
-- **Environment Setup** (kernel check, tool installation, capabilities)
-- **Project Creation** (create eBPF project, build)
-- **Compilation & Loading** (build, load, attach)
-- **Monitoring** (list programs, show stats, inspect maps)
-- **Map Operations** (dump, monitor, count entries)
-- **Ring Buffer Operations** (dump events, monitor performance)
-- **Testing & Traffic** (generate test traffic, validate)
-- **Debugging** (kernel logs, trace output, verifier)
-- **Performance Analysis** (CPU usage, throughput, memory)
-- **Troubleshooting** (won't load, map full, interface issues)
-- **Cleanup** (remove programs, clear maps)
-- **Development Workflow** (edit-compile-test cycle)
-- **Common One-liners** (useful command combinations)
-
-**Best for:** Quick lookups, operational tasks, troubleshooting
+**Outcome**: Get eBPF compiling and running
 
 ---
 
-## 🎯 Reading Paths
+### Developer (5-7 hours)
 
-### Path 1: Executive (45 minutes)
+1. 02-README.md (full)
+2. 03-IMPLEMENTATION-GUIDE.md (full)
+3. 04-CODE-REFERENCE.md (full)
+4. 06-COMMANDS.md (full)
 
-1. This INDEX.md
-2. README-eBPF-Enhancement.md (skim sections 1-3, 9)
-3. QUICK-REFERENCE-COMMANDS.md (Environment Setup)
-
-**Outcome:** Understand scope, requirements, and setup
-
----
-
-### Path 2: Architect (3 hours)
-
-1. README-eBPF-Enhancement.md (full)
-2. netui-ebpf-architecture-decisions.md (full)
-3. netui-ebpf-enhancement-guide.md (sections 1-3, 9-10)
-
-**Outcome:** Design system, make architectural decisions
+**Outcome**: Implement full eBPF integration
 
 ---
 
-### Path 3: Implementation Engineer (5-7 hours)
+### Architect (3 hours)
 
-1. README-eBPF-Enhancement.md (full)
-2. netui-ebpf-starter-implementation.md (full)
-3. netui-ebpf-enhancement-guide.md (all sections)
-4. QUICK-REFERENCE-COMMANDS.md (all sections)
+1. 02-README.md (full)
+2. 05-ARCHITECTURE-DECISIONS.md (full)
+3. 03-IMPLEMENTATION-GUIDE.md (sections 1-3)
 
-**Outcome:** Implement Phase 1-3, be ready for production
-
----
-
-### Path 4: Quick Start (2 hours)
-
-1. README-eBPF-Enhancement.md (sections 1-5)
-2. netui-ebpf-starter-implementation.md (sections 1-3)
-3. QUICK-REFERENCE-COMMANDS.md (Environment Setup, Compilation)
-
-**Outcome:** Get code compiling and running
+**Outcome**: Understand design decisions and trade-offs
 
 ---
 
-## 📊 Document Statistics
+### macOS Developer (special path)
 
-| Document                             | Lines     | Topics        | Code Samples     |
-| ------------------------------------ | --------- | ------------- | ---------------- |
-| README-eBPF-Enhancement.md           | 572       | 15            | 20+              |
-| netui-ebpf-enhancement-guide.md      | 662       | 20            | 25+              |
-| netui-ebpf-starter-implementation.md | 782       | 18            | 35+              |
-| netui-ebpf-architecture-decisions.md | 620       | 10 ADRs       | 30+              |
-| QUICK-REFERENCE-COMMANDS.md          | 632       | 15 sections   | 100+ commands    |
-| **TOTAL**                            | **3,668** | **78 topics** | **210+ samples** |
+1. 02-README.md section 5 (macOS Development Workflow)
+2. 06-COMMANDS.md section 2 (macOS Development Setup)
+3. Continue with Developer path on Linux VM
+
+**Outcome**: Set up cross-platform development environment
 
 ---
 
-## 🔑 Key Concepts Covered
+## Version Compatibility
 
-### eBPF Fundamentals
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| Linux Kernel | 5.8 | 5.15+ |
+| Aya | 0.13.1 | 0.13.1+ |
+| aya-ebpf | 0.1 | 0.1+ |
+| Rust | 1.75 | 1.80+ |
+| LLVM/Clang | 15 | 17+ |
 
-- Extended Berkeley Packet Filter capabilities
-- XDP (eXpress Data Path) hooks
-- TC (Traffic Control) eBPF programs
-- Kprobes for dynamic tracing
-- Ring buffers for event delivery
+### Kernel Feature Matrix
 
-### Rust eBPF Development
-
-- Aya library and ecosystem
-- aya-bpf for kernel code
-- Code generation with aya-tool
-- Shared types between kernel/user
-- Memory-safe eBPF patterns
-
-### Network Monitoring
-
-- Packet capture and classification
-- Flow-level statistics aggregation
-- TCP metrics (RTT, retransmissions)
-- Per-interface monitoring
-- ARP analysis
-
-### Performance Optimization
-
-- Ring buffer vs perf buffer trade-offs
-- Flow table sizing and LRU eviction
-- Sampling for expensive operations
-- Per-CPU map optimization
-- Memory footprint analysis
-
-### Integration & DevOps
-
-- Project structure and workspace setup
-- Build pipeline with xtask
-- Debugging with bpftool and kernel logs
-- Testing strategies (unit + integration)
-- Deployment and privilege management
+| Feature | Kernel Version |
+|---------|----------------|
+| XDP (basic) | 4.8+ |
+| Ring Buffer | 5.8+ |
+| BTF/CO-RE | 5.2+ |
+| CAP_BPF | 5.8+ |
+| BPF LSM | 5.7+ |
 
 ---
 
-## 🛠️ Implementation Roadmap
+## Prerequisites Checklist
 
-Week 1-2: Phase 1 - Foundation
-├─ Set up Aya project
-├─ Create XDP classifier
-├─ Implement ring buffer
-└─ Test basic functionality
+Before starting:
 
-Week 3-4: Phase 2 - Traffic Monitoring
-├─ Add TC hooks (ingress/egress)
-├─ Implement flow aggregation
-├─ Integrate with NetUI TUI
-└─ Validate bandwidth tracking
-
-Week 5-6: Phase 3 - TCP Analysis
-├─ Add kprobe handlers
-├─ Measure RTT
-├─ Track retransmissions
-└─ Store connection events
-
-Week 7: Phase 4 - ARP Enhancement
-├─ eBPF ARP filtering
-├─ Per-target stats
-└─ Anomaly detection
-
-Week 8+: Phase 5 - Advanced Features
-├─ L7 classification
-├─ DDoS detection
-├─ Process attribution
-└─ Historical storage
-
----
-
-## 📈 Expected Improvements
-
-### Performance
-
-- **Throughput:** 1-2 Gbps → 10+ Gbps (5-10x)
-- **Latency:** 100μs → <1μs (100x improvement)
-- **CPU overhead:** 20-30% → 0.5-3% (10x better)
-- **Accuracy:** 95-99% → 100%
-
-### Capabilities
-
-- **New metrics:** RTT, retransmissions, TCP state, L7 classification
-- **Real-time:** Sub-millisecond event delivery
-- **Scalability:** 10k+ concurrent flows tracked
-- **Observability:** Per-packet to per-flow granularity
-
----
-
-## 🔍 Technologies Referenced
-
-### Core Technologies
-
-- Linux eBPF (5.8+, 6.1+ recommended)
-- Rust programming language (1.70+)
-- Aya eBPF library (0.12+)
-- ratatui TUI framework
-
-### Tools & Utilities
-
-- bpftool (inspect/debug eBPF)
-- clang/llvm (compile eBPF)
-- cargo (Rust build tool)
-- iperf3 (traffic generation)
-- tcpdump (packet capture)
-
-### Reference Projects
-
-- Cilium (container networking)
-- Tracee (runtime security)
-- Hubble (network visibility)
-- Pixie (observability)
-
----
-
-## ⚠️ Important Considerations
-
-### Minimum Requirements
-
-- Linux kernel 5.8+ (5.15+ recommended)
-- CAP_BPF + CAP_PERFMON capabilities (or root)
-- GCC/LLVM for eBPF compilation
-- 4+ GB RAM, 2+ CPU cores
-
-### Compatibility Notes
-
-- XDP works with most modern NICs
-- Some hypervisors may limit eBPF (check AWS Nitro, GCP, Azure)
-- Container environments require host-level eBPF
-- Older kernels need fallback to perf buffers
-
-### Security Model
-
-- Programs verified before loading (no kernel crashes)
-- Memory access bounds-checked automatically
-- Sandboxed execution with resource limits
-- Network unchanged by monitoring (XDP_PASS default)
-
----
-
-## 🎓 Learning Outcomes
-
-After completing this guide, you will understand:
-
-✅ How eBPF enables kernel-space packet monitoring
-✅ Why eBPF is superior to user-space capture (libpcap)
-✅ How to write and load eBPF programs with Aya
-✅ How to integrate eBPF with Rust userspace code
-✅ How to monitor and debug eBPF in production
-✅ How to architect scalable network monitoring systems
-✅ How to measure and optimize eBPF performance
-✅ How to implement advanced features (TCP analysis, L7 classification)
-
----
-
-## 📞 Support & Resources
-
-### Official Documentation
-
-- eBPF.io: https://ebpf.io
-- Aya Book: https://aya-rs.dev/book/
-- Linux Kernel: https://www.kernel.org/doc/html/latest/bpf/
-
-### Community
-
-- eBPF mailing list
-- Rust eBPF community
-- NetUI GitHub issues
-
-### Tools & References
-
-- bpftool man pages
-- Brendan Gregg's BPF Performance Tools
-- Isovalent eBPF Course
-
----
-
-## ✅ Verification Checklist
-
-Before starting implementation, verify:
-
-- [ ] Linux kernel version 5.8+ (`uname -r`)
-- [ ] eBPF support enabled (`grep BPF /boot/config-*`)
-- [ ] Rust 1.70+ installed (`rustc --version`)
-- [ ] Cargo installed (`cargo --version`)
-- [ ] Clang/LLVM available (`clang --version`)
+- [ ] Linux kernel 5.8+ (`uname -r`)
+- [ ] Rust 1.75+ (`rustc --version`)
+- [ ] Clang/LLVM 15+ (`clang --version`)
 - [ ] bpf-linker installed (`cargo install bpf-linker`)
-- [ ] Proper permissions (root or CAP_BPF/CAP_PERFMON)
+- [ ] Root or CAP_BPF capability
 - [ ] Network interface available (`ip link show`)
 
----
-
-## 📝 Version Information
-
-- **Guide Version:** 1.0
-- **Last Updated:** January 2026
-- **Target Linux:** 5.8 - 6.5+
-- **Target Rust:** 1.70+
-- **Target Aya:** 0.12+
-- **Compatibility:** x86_64, ARM64
+For macOS developers:
+- [ ] Linux VM or remote Linux machine
+- [ ] SSH access configured
+- [ ] Project sync mechanism (rsync, sshfs, or shared folder)
 
 ---
 
-## 🎬 Next Steps
+## Document Statistics
 
-1. **Read** README-eBPF-Enhancement.md (30 mins)
-2. **Plan** which phases to implement
-3. **Prepare** development environment
-4. **Start** Phase 1 (weeks 1-2)
-5. **Test** with real traffic
-6. **Iterate** through phases
-7. **Benchmark** improvements
-8. **Deploy** to production
+| Document | Est. Lines | Code Samples |
+|----------|------------|--------------|
+| 02-README.md | ~400 | 15+ |
+| 03-IMPLEMENTATION-GUIDE.md | ~500 | 20+ |
+| 04-CODE-REFERENCE.md | ~600 | 30+ |
+| 05-ARCHITECTURE-DECISIONS.md | ~500 | 15+ |
+| 06-COMMANDS.md | ~350 | 80+ |
+| **Total** | **~2,350** | **160+** |
 
 ---
 
-**Welcome to eBPF-enhanced network monitoring! 🚀**
+## Quick Links
+
+- [Quick Start](02-README.md#quick-start)
+- [macOS Development](02-README.md#macos-development-workflow)
+- [XDP Classifier Code](04-CODE-REFERENCE.md#xdp-packet-classifier)
+- [Ring Buffer API](03-IMPLEMENTATION-GUIDE.md#ring-buffer-design)
+- [All Commands](06-COMMANDS.md)
+
+---
+
+## Version
+
+- **Documentation Version**: 2.0
+- **Last Updated**: January 2026
+- **Target Aya**: 0.13.1+
+- **Target Linux**: 5.8 - 6.x
