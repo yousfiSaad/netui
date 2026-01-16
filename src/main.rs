@@ -11,12 +11,14 @@ use crate::{
 };
 
 pub mod app;
+pub mod backend;
 pub mod event;
 pub mod hosts_table;
 pub mod logging;
 pub mod scanner;
 pub mod stats_aggregator;
 pub mod tui;
+pub mod types;
 pub mod ui;
 
 use clap::Parser;
