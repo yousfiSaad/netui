@@ -373,12 +373,81 @@ Study these for architecture patterns:
 
 ---
 
+## Building with eBPF Backend
+
+### Prerequisites
+
+The eBPF backend uses **aya-build** to automatically compile eBPF programs during `cargo build`. This simplifies the build process significantly compared to manual xtask approaches.
+
+#### Linux (Native)
+
+On Linux, the build works out of the box:
+
+```bash
+# Install bpf-linker (one-time setup)
+cargo install bpf-linker
+
+# Build with eBPF backend
+cargo build --features ebpf-backend
+```
+
+#### macOS (via Colima)
+
+Since eBPF is Linux-only, use Colima for cross-compilation on macOS:
+
+```bash
+# Start Colima (if not running)
+colima start
+
+# Install nightly toolchain and bpf-linker in Colima (one-time setup)
+colima ssh -- bash -c "rustup toolchain install nightly-aarch64-unknown-linux-gnu && rustup component add rust-src --toolchain nightly && cargo install bpf-linker"
+
+# Build with eBPF backend
+colima ssh -- bash -c "cargo build --features ebpf-backend"
+```
+
+### Build Process
+
+The `build.rs` script automatically:
+
+1. **Detects the target platform** - Only builds eBPF on Linux
+2. **Invokes aya-build** - Compiles `netui-ebpf` to BPF bytecode
+3. **Handles platform quirks** - Works around known aya-build v0.1.3 bugs
+
+### Output
+
+The compiled eBPF binary is placed at:
+```
+target/debug/build/netui-*/out/netui-ebpf.bpf
+```
+
+This is an ELF file containing BPF bytecode that can be loaded into the kernel.
+
+### Cross-Platform Design
+
+The project uses conditional compilation to handle platform differences:
+
+```toml
+[features]
+ebpf-backend = ["aya", "aya-log"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = { version = "0.13", optional = true }
+aya-log = { version = "0.2", optional = true }
+```
+
+This means:
+- **Linux**: Both `pnet-backend` and `ebpf-backend` are available
+- **macOS/Windows**: Only `pnet-backend` is available (eBPF feature is ignored gracefully)
+
+---
+
 ## Prerequisites
 
 Before implementing these features:
 
-1. Complete refactoring plan (`docs/00-REFACTORING-PLAN.md`)
-2. Implement core eBPF backend (`docs/03-IMPLEMENTATION-GUIDE.md`)
+1. ~~Complete refactoring plan~~ ✅ Done (`docs/00-REFACTORING-PLAN.md`)
+2. ~~Implement core eBPF backend~~ ✅ Done (`docs/03-IMPLEMENTATION-GUIDE.md`)
 3. Verify basic packet capture works
 4. Add feature flags for incremental rollout
 

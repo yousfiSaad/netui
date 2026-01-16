@@ -25,6 +25,42 @@ To install and run NetUI, ensure that you have Rust and Cargo installed on your 
   cargo build --release
   ```
 
+### Backend Options
+
+NetUI supports two network monitoring backends:
+
+| Backend | Platform | Performance | Features |
+|---------|----------|-------------|----------|
+| **pnet** (default) | All platforms | 1-2 Gbps | Basic packet capture |
+| **eBPF** | Linux only | 10+ Gbps | Advanced metrics, kernel-level filtering |
+
+#### Building with eBPF Backend (Linux)
+
+```sh
+# Install bpf-linker (one-time setup)
+cargo install bpf-linker
+
+# Build with eBPF backend
+cargo build --release --features ebpf-backend
+```
+
+#### Building on macOS (via Colima)
+
+Since eBPF is Linux-only, you can use Colima for cross-compilation on macOS:
+
+```sh
+# Start Colima
+colima start
+
+# Setup (one-time)
+colima ssh -- bash -c "rustup toolchain install nightly && rustup component add rust-src --toolchain nightly && cargo install bpf-linker"
+
+# Build with eBPF backend
+colima ssh -- bash -c "cargo build --release --features ebpf-backend"
+```
+
+See [`docs/07-EBPF-FEATURES.md`](docs/07-EBPF-FEATURES.md) for more details on eBPF capabilities.
+
 ## Use the App
 
 ```sh

@@ -38,13 +38,10 @@ impl PacketSink for PnetPacketSink {
 pub struct PnetBackendFactory;
 
 impl BackendFactory for PnetBackendFactory {
-    type Source = PnetPacketSource;
-    type Sink = PnetPacketSink;
-
     fn create(
         &self,
         config: BackendConfig,
-    ) -> Result<(Self::Source, Self::Sink), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(Box<dyn PacketSource>, Box<dyn PacketSink>), Box<dyn Error + Send + Sync>> {
         let interfaces = pnet_datalink::interfaces();
         let interface = interfaces
             .into_iter()
@@ -66,11 +63,11 @@ impl BackendFactory for PnetBackendFactory {
 
         match channel(&interface, channel_config) {
             Ok(Channel::Ethernet(tx, rx)) => Ok((
-                PnetPacketSource { receiver: rx },
-                PnetPacketSink {
+                Box::new(PnetPacketSource { receiver: rx }),
+                Box::new(PnetPacketSink {
                     sender: tx,
                     interface,
-                },
+                }),
             )),
             Ok(_) => Err("Unsupported channel type".into()),
             Err(e) => Err(format!("Channel creation failed: {}", e).into()),

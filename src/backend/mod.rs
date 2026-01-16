@@ -1,4 +1,12 @@
+use clap::ValueEnum;
 use std::error::Error;
+
+#[derive(ValueEnum, Clone, Debug, Default)]
+pub enum BackendType {
+    #[default]
+    Pnet,
+    Ebpf,
+}
 
 /// Source of network packets - can receive packets
 pub trait PacketSource: Send + 'static {
@@ -28,13 +36,10 @@ impl BackendConfig {
 
 /// Factory for creating packet source/sink pairs
 pub trait BackendFactory: Send + Sync {
-    type Source: PacketSource;
-    type Sink: PacketSink;
-
     fn create(
         &self,
         config: BackendConfig,
-    ) -> Result<(Self::Source, Self::Sink), Box<dyn Error + Send + Sync>>;
+    ) -> Result<(Box<dyn PacketSource>, Box<dyn PacketSink>), Box<dyn Error + Send + Sync>>;
 
     fn name(&self) -> &'static str;
 }
@@ -44,3 +49,9 @@ pub mod pnet_backend;
 
 #[cfg(feature = "pnet-backend")]
 pub use pnet_backend::PnetBackendFactory;
+
+#[cfg(feature = "ebpf-backend")]
+pub mod ebpf_backend;
+
+#[cfg(feature = "ebpf-backend")]
+pub use ebpf_backend::EbpfBackendFactory;

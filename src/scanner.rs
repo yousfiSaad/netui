@@ -25,12 +25,18 @@ use tokio::{
 
 use crate::{
     app::{AppResult, Host},
-    backend::{BackendConfig, BackendFactory, PacketSink, PacketSource, PnetBackendFactory},
+    backend::{BackendConfig, BackendFactory, BackendType, PacketSink, PacketSource, PnetBackendFactory},
     event::{Event, ScannerEvent},
     stats_aggregator::{self, StatsMap},
     trace_dbg,
     types::MacAddr,
 };
+
+#[cfg(feature = "ebpf-backend")]
+use crate::backend::EbpfBackendFactory;
+
+
+
 
 enum ScannerInputEvent {
     StartScanning,
@@ -47,8 +53,15 @@ impl Scanner {
     pub fn new(
         scanner_outputs: mpsc::UnboundedSender<Event>,
         interface_name: String,
+        backend_type: BackendType,
     ) -> AppResult<Self> {
-        let backend_factory = PnetBackendFactory;
+        let backend_factory: Box<dyn BackendFactory> = match backend_type {
+            BackendType::Pnet => Box::new(PnetBackendFactory),
+            #[cfg(feature = "ebpf-backend")]
+            BackendType::Ebpf => Box::new(EbpfBackendFactory),
+            #[cfg(not(feature = "ebpf-backend"))]
+            BackendType::Ebpf => panic!("eBPF backend not compiled in. Enable 'ebpf-backend' feature."),
+        };
         let backend_config = BackendConfig::new(interface_name.clone());
         let (packet_source, packet_sink) = backend_factory
             .create(backend_config)
@@ -68,8 +81,8 @@ impl Scanner {
             interface_name,
         };
 
-        scanner.start_listening(Box::new(packet_source))?;
-        scanner.start_tx_worker(scanner_input_rx, Box::new(packet_sink))?;
+        scanner.start_listening(packet_source)?;
+        scanner.start_tx_worker(scanner_input_rx, packet_sink)?;
 
         Ok(scanner)
     }

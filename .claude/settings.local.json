@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\ndocs: add refactoring plan for eBPF integration preparation\n\nPre-requisite refactoring plan covering:\n- Error handling fixes \\(remove process::exit calls\\)\n- Type abstraction \\(custom MacAddr\\)\n- Backend trait extraction \\(PacketSource/PacketSink\\)\n- Scanner refactoring for backend flexibility\n- Feature flags for conditional compilation\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "mcp__Ref__ref_search_documentation",
+      "mcp__Ref__ref_read_url",
+      "Bash(colima ssh:*)"
+    ]
+  },
+  "outputStyle": "Learning"
+}

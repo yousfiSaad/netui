@@ -6,6 +6,7 @@ use scanner::Scanner;
 
 use crate::{
     app::{App, AppResult},
+    backend::BackendType,
     event::{Event, EventHandler},
     tui::Tui,
 };
@@ -21,7 +22,7 @@ pub mod tui;
 pub mod types;
 pub mod ui;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -30,7 +31,11 @@ struct Args {
     /// Name of the interface to watch
     #[arg(short, long)]
     name: String,
+    // TODO(human): Add backend selection argument here
+    #[arg(long, default_value_t, value_enum)]
+    backend: BackendType,
 }
+
 #[tokio::main]
 async fn main() -> AppResult<()> {
     let args = Args::parse();
@@ -43,7 +48,7 @@ async fn main() -> AppResult<()> {
     let terminal = Terminal::new(backend)?;
     let mut tui = Tui::new(terminal);
     let mut events = EventHandler::new(250);
-    let scanner = Scanner::new(events.get_sender_clone(), interface_name)?;
+    let scanner = Scanner::new(events.get_sender_clone(), interface_name, args.backend)?;
 
     // Create an application.
     let mut app = App::new(scanner)?;
