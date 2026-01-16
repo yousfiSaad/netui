@@ -4,9 +4,9 @@ use std::{error, net::Ipv4Addr};
 use crate::{
     event::ScannerEvent,
     stats_aggregator::{Speed, StatsAggregator},
+    types::MacAddr,
 };
 
-use pnet::util::MacAddr;
 use ratatui::widgets::{ScrollbarState, TableState};
 
 use crate::scanner::Scanner;

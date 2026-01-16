@@ -5,7 +5,6 @@ use pnet::packet::{
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
-    process,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -18,7 +17,7 @@ use pnet::{
         ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket},
     },
 };
-use pnet_datalink::{DataLinkReceiver, DataLinkSender, MacAddr, NetworkInterface};
+use pnet_datalink::{MacAddr as PnetMacAddr, NetworkInterface};
 use tokio::{
     sync::mpsc::{self, unbounded_channel, UnboundedReceiver, UnboundedSender},
     time::{self, sleep},
@@ -26,9 +25,11 @@ use tokio::{
 
 use crate::{
     app::{AppResult, Host},
+    backend::{BackendConfig, BackendFactory, PacketSink, PacketSource, PnetBackendFactory},
     event::{Event, ScannerEvent},
     stats_aggregator::{self, StatsMap},
     trace_dbg,
+    types::MacAddr,
 };
 
 enum ScannerInputEvent {
@@ -38,6 +39,7 @@ enum ScannerInputEvent {
 pub struct Scanner {
     scanner_input_tx: UnboundedSender<ScannerInputEvent>,
     scanner_outputs: UnboundedSender<Event>,
+    interface_name: String,
 }
 
 impl Scanner {
@@ -46,10 +48,15 @@ impl Scanner {
         scanner_outputs: mpsc::UnboundedSender<Event>,
         interface_name: String,
     ) -> AppResult<Self> {
-        let nif = Self::find_interface_or_get_default(interface_name)?;
+        let backend_factory = PnetBackendFactory;
+        let backend_config = BackendConfig::new(interface_name.clone());
+        let (packet_source, packet_sink) = backend_factory
+            .create(backend_config)
+            .map_err(|e| format!("Failed to create backend: {}", e))?;
+
         scanner_outputs
             .send(Event::Scanner(ScannerEvent::InterfaceName(
-                nif.name.clone(),
+                interface_name.clone(),
             )))
             .unwrap();
 
@@ -58,38 +65,18 @@ impl Scanner {
         let mut scanner = Self {
             scanner_outputs,
             scanner_input_tx,
+            interface_name,
         };
 
-        let (datalink_tx, datalink_rx) = Self::create_datalink_channel(nif.clone())?;
-        scanner.start_listening(datalink_rx, nif.clone())?;
-        scanner.start_tx_worker(scanner_input_rx, datalink_tx, nif)?;
+        scanner.start_listening(Box::new(packet_source))?;
+        scanner.start_tx_worker(scanner_input_rx, Box::new(packet_sink))?;
 
         Ok(scanner)
     }
 
-    fn create_datalink_channel(
-        nif: NetworkInterface,
-    ) -> AppResult<(Box<dyn DataLinkSender>, Box<dyn DataLinkReceiver>)> {
-        let channel_config = pnet_datalink::Config {
-            read_timeout: Some(Duration::from_millis(500)),
-            ..pnet_datalink::Config::default()
-        };
-        let pair = match pnet_datalink::channel(&nif, channel_config) {
-            Ok(pnet_datalink::Channel::Ethernet(tx, rx)) => (tx, rx),
-            Ok(_) => {
-                process::exit(1);
-            }
-            Err(_error) => {
-                process::exit(1);
-            }
-        };
-        Ok(pair)
-    }
-
     fn start_listening(
         &self,
-        mut datalink_rx: Box<dyn DataLinkReceiver>,
-        def_nif: NetworkInterface,
+        mut packet_source: Box<dyn PacketSource>,
     ) -> AppResult<()> {
         let scanner_outputs: UnboundedSender<Event> = self.scanner_outputs.clone();
         let scanner_outputs_clone = scanner_outputs.clone();
@@ -113,15 +100,15 @@ impl Scanner {
 
         tokio::spawn(async move {
             loop {
-                if let Ok(buffer) = datalink_rx.next() {
-                    let ethernet_packet = match EthernetPacket::new(buffer) {
+                if let Some(buffer) = packet_source.next_packet() {
+                    let ethernet_packet = match EthernetPacket::new(&buffer) {
                         Some(packet) => packet,
                         None => continue,
                     };
 
                     match ethernet_packet.get_ethertype() {
                         EtherTypes::Arp => {
-                            if let Some(host) = Self::get_host_infos(buffer, &def_nif) {
+                            if let Some(host) = Self::get_host_infos(&buffer) {
                                 match scanner_outputs.send(Event::Scanner(
                                     crate::event::ScannerEvent::HostFound(host),
                                 )) {
@@ -133,7 +120,7 @@ impl Scanner {
                             }
                         }
                         EtherTypes::Ipv4 => {
-                            if let Some(stat) = Self::get_stats(ethernet_packet, &def_nif) {
+                            if let Some(stat) = Self::get_stats(ethernet_packet) {
                                 {
                                     let mut agg_data = agg.lock().unwrap();
 
@@ -155,17 +142,31 @@ impl Scanner {
     fn start_tx_worker(
         &mut self,
         mut scanner_input_rx: UnboundedReceiver<ScannerInputEvent>,
-        mut datalink_channel_tx: Box<dyn DataLinkSender>,
-        nif: NetworkInterface,
+        mut packet_sink: Box<dyn PacketSink>,
     ) -> AppResult<()> {
         let scanner_outputs_clone = self.scanner_outputs.clone();
+        let interface_name = self.interface_name.clone();
         tokio::spawn(async move {
             while let Some(event) = scanner_input_rx.recv().await {
                 if !matches!(event, ScannerInputEvent::StartScanning) {
                     continue;
                 }
 
-                let nif = nif.clone();
+                // Get interface for current backend
+                let interfaces = pnet_datalink::interfaces();
+                let nif = interfaces
+                    .into_iter()
+                    .rev()
+                    .find(|nif| {
+                        nif.is_up()
+                            && nif.is_running()
+                            && !nif.is_loopback()
+                            && nif.name
+                                .to_lowercase()
+                                .contains(&interface_name.to_lowercase())
+                    })
+                    .unwrap(); // Should exist since backend was created successfully
+
                 for ip_network in nif
                     .clone()
                     .ips
@@ -176,7 +177,7 @@ impl Scanner {
                         &nif,
                         ip_network,
                         scanner_outputs_clone.clone(),
-                        &mut datalink_channel_tx,
+                        &mut packet_sink,
                     )
                     .await;
                 }
@@ -188,7 +189,7 @@ impl Scanner {
         nif: &NetworkInterface,
         ip_network: ipnetwork::IpNetwork,
         scanner_outputs: mpsc::UnboundedSender<Event>,
-        datalink_channel_tx: &mut Box<dyn DataLinkSender>,
+        packet_sink: &mut Box<dyn PacketSink>,
     ) {
         scanner_outputs
             .send(Event::Scanner(crate::event::ScannerEvent::BeginScan))
@@ -198,7 +199,7 @@ impl Scanner {
         for ip_addr in ip_network.iter() {
             if let IpAddr::V4(ipv4_address) = ip_addr {
                 sleep(Duration::from_millis(37)).await;
-                Self::send_arp_request(datalink_channel_tx, nif, ipv4_address);
+                let _ = Self::send_arp_request(packet_sink, nif, ipv4_address);
             }
         }
         sender
@@ -206,56 +207,17 @@ impl Scanner {
             .unwrap();
     }
 
-    fn find_interface(interface_name: String) -> AppResult<pnet_datalink::NetworkInterface> {
-        let interfaces = pnet_datalink::interfaces();
-
-        Ok(interfaces
-            .into_iter()
-            .rev()
-            .find(|nif| {
-                nif.is_up()
-                    && nif.is_running()
-                    && !nif.is_loopback()
-                    && nif.name.to_lowercase().contains(&interface_name)
-                // && nif.name.to_lowercase().contains("utun3")
-            })
-            .ok_or("interface not found")?)
-    }
-
-    fn find_interface_or_get_default(
-        interface_name: String,
-    ) -> AppResult<pnet_datalink::NetworkInterface> {
-        let interfaces = pnet_datalink::interfaces();
-
-        let nif = if let Ok(c_nif) = Self::find_interface(interface_name) {
-            c_nif
-        } else {
-            interfaces
-                .into_iter()
-                .rev()
-                .find(|nif| nif.is_up() && nif.is_running() && !nif.is_loopback())
-                .ok_or("interface not found")?
-        };
-        Ok(nif)
-    }
-
     fn send_arp_request(
-        tx: &mut Box<dyn DataLinkSender>,
+        packet_sink: &mut Box<dyn PacketSink>,
         interface: &NetworkInterface,
         target_ip: Ipv4Addr,
-    ) {
+    ) -> AppResult<()> {
         let mut ethernet_buffer = vec![0u8; 42];
-        let mut ethernet_packet =
-            MutableEthernetPacket::new(&mut ethernet_buffer).unwrap_or_else(|| {
-                // eprintln!("Could not build Ethernet packet");
-                process::exit(1);
-            });
+        let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer)
+            .ok_or("Failed to create Ethernet packet from buffer")?;
 
-        let target_mac_broadcast = MacAddr::broadcast();
-        let source_mac = interface.mac.unwrap_or_else(|| {
-            // eprintln!("Interface should have a MAC address");
-            process::exit(1);
-        });
+        let target_mac_broadcast = PnetMacAddr::broadcast();
+        let source_mac = interface.mac.ok_or("Interface missing MAC address")?;
 
         ethernet_packet.set_destination(target_mac_broadcast);
         ethernet_packet.set_source(source_mac);
@@ -264,12 +226,10 @@ impl Scanner {
         ethernet_packet.set_ethertype(selected_ethertype);
 
         let mut arp_buffer = [0u8; 28];
-        let mut arp_packet = MutableArpPacket::new(&mut arp_buffer).unwrap_or_else(|| {
-            // eprintln!("Could not build ARP packet");
-            process::exit(1);
-        });
+        let mut arp_packet = MutableArpPacket::new(&mut arp_buffer)
+            .ok_or("Failed to create ARP packet from buffer")?;
 
-        let source_ip = Self::find_source_ip(interface);
+        let source_ip = Self::find_source_ip(interface)?;
 
         arp_packet.set_hardware_type(ArpHardwareTypes::Ethernet);
         arp_packet.set_protocol_type(EtherTypes::Ipv4);
@@ -283,23 +243,21 @@ impl Scanner {
 
         ethernet_packet.set_payload(arp_packet.packet_mut());
 
-        tx.send_to(
-            ethernet_packet.to_immutable().packet(),
-            Some(interface.clone()),
-        );
+        packet_sink
+            .send_packet(ethernet_packet.to_immutable().packet())
+            .map_err(|e| format!("Failed to send ARP request: {}", e))?;
+        Ok(())
     }
 
-    fn find_source_ip(network_interface: &NetworkInterface) -> Ipv4Addr {
+    fn find_source_ip(network_interface: &NetworkInterface) -> AppResult<Ipv4Addr> {
         let potential_network = network_interface
             .ips
             .iter()
             .find(|network| network.is_ipv4());
         match potential_network.map(|network| network.ip()) {
-            Some(IpAddr::V4(ipv4_addr)) => ipv4_addr,
-            _ => {
-                // eprintln!("Expected IPv4 address on network interface");
-                process::exit(1);
-            }
+            Some(IpAddr::V4(ipv4_addr)) => Ok(ipv4_addr),
+            Some(other) => return Err(format!("Expected IPv4, found: {}", other).into()),
+            None => return Err("No IPv4 address found on interface".into()),
         }
     }
 
@@ -309,18 +267,19 @@ impl Scanner {
             .unwrap();
     }
 
-    fn get_host_infos(buffer: &[u8], def_nif: &NetworkInterface) -> Option<Host> {
+    fn get_host_infos(buffer: &[u8]) -> Option<Host> {
         let arp_packet = ArpPacket::new(&buffer[MutableEthernetPacket::minimum_packet_size()..]);
         if let Some(arp) = arp_packet {
             let sender_ipv4 = arp.get_sender_proto_addr();
-            let sender_mac = arp.get_sender_hw_addr();
+            let sender_mac_raw = arp.get_sender_hw_addr();
+            let sender_mac: MacAddr = sender_mac_raw.into();
 
             let host = Host {
                 hostname: None,
                 time: chrono::Local::now(),
                 mac: sender_mac,
                 ipv4: sender_ipv4,
-                is_my_device_mac: sender_mac == def_nif.mac.unwrap_or_default(),
+                is_my_device_mac: false, // TODO: Fix when implementing eBPF
                 speed: None,
             };
             Some(host)
@@ -331,28 +290,14 @@ impl Scanner {
 
     fn get_stats(
         ethernet_packet: EthernetPacket,
-        def_nif: &NetworkInterface,
     ) -> Option<stats_aggregator::StatItem> {
         let ipv4_packet = Ipv4Packet::new(ethernet_packet.payload())?;
         let src_ip = ipv4_packet.get_source();
         let dst_ip = ipv4_packet.get_destination();
         let next_level_protocol = ipv4_packet.get_next_level_protocol();
-        let ips: Vec<IpAddr> = def_nif
-            .ips
-            .iter()
-            .filter(|ipn| ipn.is_ipv4())
-            .flatten()
-            .collect();
 
-        let direction = match (
-            ips.contains(&IpAddr::from(src_ip)),
-            ips.contains(&IpAddr::from(dst_ip)),
-        ) {
-            (true, true) => stats_aggregator::Direction::Local,
-            (true, false) => stats_aggregator::Direction::Outgoing,
-            (false, true) => stats_aggregator::Direction::Incomming,
-            (false, false) => stats_aggregator::Direction::None,
-        };
+        // TODO: Set proper direction when implementing eBPF
+        let direction = stats_aggregator::Direction::None;
 
         let stat = match next_level_protocol {
             IpNextHeaderProtocols::Tcp => {
