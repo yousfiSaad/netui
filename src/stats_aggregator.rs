@@ -10,9 +10,6 @@ use ringbuf::{
     traits::{Consumer, Observer, RingBuffer},
     HeapRb,
 };
-use tracing::Level;
-
-use crate::trace_dbg;
 
 pub struct StatsAggregator {
     /// down, up, local, "other"
@@ -103,8 +100,9 @@ impl StatsAggregator {
                         }
                     }
                     Direction::None => {
-                        let msg = format!("{} {}", src, dst);
-                        trace_dbg!(level: Level::ERROR, msg);
+                        // Include traffic with unknown direction in both directions for now
+                        speed_pair_to_add.input += v.size;
+                        speed_pair_to_add.output += v.size;
                     }
                 }
                 pairs

@@ -307,8 +307,8 @@ impl Scanner {
             .find(|network| network.is_ipv4());
         match potential_network.map(|network| network.ip()) {
             Some(IpAddr::V4(ipv4_addr)) => Ok(ipv4_addr),
-            Some(other) => return Err(format!("Expected IPv4, found: {}", other).into()),
-            None => return Err("No IPv4 address found on interface".into()),
+            Some(other) => Err(format!("Expected IPv4, found: {}", other).into()),
+            None => Err("No IPv4 address found on interface".into()),
         }
     }
 

@@ -1,6 +1,9 @@
 use clap::ValueEnum;
 use std::error::Error;
 
+/// Type alias for backend creation result
+pub type BackendResult = Result<(Box<dyn PacketSource>, Box<dyn PacketSink>), Box<dyn Error + Send + Sync>>;
+
 #[derive(ValueEnum, Clone, Debug, Default)]
 pub enum BackendType {
     #[default]
@@ -36,10 +39,7 @@ impl BackendConfig {
 
 /// Factory for creating packet source/sink pairs
 pub trait BackendFactory: Send + Sync {
-    fn create(
-        &self,
-        config: BackendConfig,
-    ) -> Result<(Box<dyn PacketSource>, Box<dyn PacketSink>), Box<dyn Error + Send + Sync>>;
+    fn create(&self, config: BackendConfig) -> BackendResult;
 
     fn name(&self) -> &'static str;
 }
