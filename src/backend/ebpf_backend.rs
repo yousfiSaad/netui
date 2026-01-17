@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::path::{Path, PathBuf};
+use std::fs;
 use aya::Ebpf;
 use crate::backend::{BackendConfig, BackendFactory, PacketSink, PacketSource};
 
@@ -37,20 +39,11 @@ impl BackendFactory for EbpfBackendFactory {
         // But to keep it simple, let's assume we have the bytes.
         // Wait, aya usually loads from file.
 
-        // Try to find the eBPF binary in common locations
-        let candidates = [
-            "target/bpfel-unknown-none/debug/netui-ebpf",
-            "target/bpfel-unknown-none/release/netui-ebpf",
-            "netui-ebpf/target/bpfel-unknown-none/debug/netui-ebpf", // If built inside the crate
-            "target/bpf/netui-ebpf", // Legacy/Custom
-        ];
+        // Build script copies the eBPF binary to target/debug/build/netui-<hash>/out/netui-ebpf.bpf
+        // We need to find it by searching the build directory
+        let bpf_binary = find_ebpf_binary().ok_or("Could not find netui-ebpf binary.")?;
 
-        let path = candidates
-            .iter()
-            .find(|p| std::path::Path::new(p).exists())
-            .ok_or("Could not find netui-ebpf binary. Did you run 'cargo build' in netui-ebpf?")?;
-
-        let bpf = Ebpf::load_file(path)?;
+        let bpf = Ebpf::load_file(&bpf_binary)?;
 
         // TODO(human): Attach the XDP program to the interface here.
 
@@ -63,4 +56,41 @@ impl BackendFactory for EbpfBackendFactory {
     fn name(&self) -> &'static str {
         "ebpf"
     }
+}
+
+/// Find the eBPF binary in the build directory.
+///
+/// The build script copies the compiled eBPF program to:
+/// target/debug/build/netui-<hash>/out/netui-ebpf.bpf
+///
+/// We search the build directory to find it.
+fn find_ebpf_binary() -> Option<PathBuf> {
+    let build_dir = Path::new("target/debug/build");
+    if !build_dir.exists() {
+        return None;
+    }
+
+    // Read the build directory and find the netui-* subdirectory
+    let entries = fs::read_dir(build_dir).ok()?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        // Check if this looks like our build directory (starts with "netui-")
+        let dir_name = path.file_name()?.to_str()?;
+        if !dir_name.starts_with("netui-") {
+            continue;
+        }
+
+        // Check for netui-ebpf.bpf in the out/ subdirectory
+        let bpf_path = path.join("out/netui-ebpf.bpf");
+        if bpf_path.exists() {
+            return Some(bpf_path);
+        }
+    }
+
+    None
 }
