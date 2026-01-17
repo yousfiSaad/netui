@@ -931,6 +931,7 @@ dependencies = [
  "aya",
  "aya-build",
  "aya-log",
+ "bytes",
  "chrono",
  "clap",
  "color-eyre",
