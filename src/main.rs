@@ -31,8 +31,8 @@ struct Args {
     /// Name of the interface to watch
     #[arg(short, long)]
     name: String,
-    // TODO(human): Add backend selection argument here
-    #[arg(long, default_value_t, value_enum)]
+    /// Backend to use for packet capture
+    #[arg(long, short = 'b', default_value_t, value_enum)]
     backend: BackendType,
 }
 
