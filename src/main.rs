@@ -69,6 +69,9 @@ async fn main() -> AppResult<()> {
     }
 
     // Exit the user interface.
+    // Explicitly drop the scanner before exiting the TUI to ensure
+    // background tasks are cancelled before terminal restoration
+    drop(app);
     tui.exit()?;
     Ok(())
 }

@@ -8,6 +8,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::Level;
 
 use pnet::{
@@ -46,6 +48,8 @@ pub struct Scanner {
     scanner_input_tx: UnboundedSender<ScannerInputEvent>,
     scanner_outputs: UnboundedSender<Event>,
     interface_name: String,
+    cancel_token: CancellationToken,
+    task_handles: Vec<JoinHandle<()>>,
 }
 
 impl Scanner {
@@ -74,11 +78,14 @@ impl Scanner {
             .unwrap();
 
         let (scanner_input_tx, scanner_input_rx) = unbounded_channel::<ScannerInputEvent>();
+        let cancel_token = CancellationToken::new();
 
         let mut scanner = Self {
             scanner_outputs,
             scanner_input_tx,
             interface_name,
+            cancel_token,
+            task_handles: Vec::new(),
         };
 
         scanner.start_listening(packet_source)?;
@@ -88,31 +95,49 @@ impl Scanner {
     }
 
     fn start_listening(
-        &self,
+        &mut self,
         mut packet_source: Box<dyn PacketSource>,
     ) -> AppResult<()> {
         let scanner_outputs: UnboundedSender<Event> = self.scanner_outputs.clone();
         let scanner_outputs_clone = scanner_outputs.clone();
         let agg: Arc<Mutex<StatsMap>> = Arc::new(Mutex::new(HashMap::new()));
         let agg_clone = agg.clone();
-        tokio::spawn(async move {
+
+        // Stats aggregator task
+        let stats_cancel_token = self.cancel_token.child_token();
+        let stats_handle = tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(1));
             loop {
-                interval.tick().await;
-                let data_clone;
-                {
-                    let mut data = agg_clone.lock().unwrap();
-                    data_clone = data.clone();
-                    *data = HashMap::new();
+                tokio::select! {
+                    _ = stats_cancel_token.cancelled() => {
+                        tracing::debug!("Stats aggregator task cancelled, shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        let data_clone;
+                        {
+                            let mut data = agg_clone.lock().unwrap();
+                            data_clone = data.clone();
+                            *data = HashMap::new();
+                        }
+                        scanner_outputs_clone
+                            .send(Event::Scanner(ScannerEvent::StatTick(data_clone)))
+                            .unwrap();
+                    }
                 }
-                scanner_outputs_clone
-                    .send(Event::Scanner(ScannerEvent::StatTick(data_clone)))
-                    .unwrap();
             }
         });
 
-        tokio::spawn(async move {
+        // Packet listener task
+        let listener_cancel_token = self.cancel_token.child_token();
+        let listener_handle = tokio::spawn(async move {
             loop {
+                // Check for cancellation before blocking on packet read
+                if listener_cancel_token.is_cancelled() {
+                    tracing::debug!("Packet listener task cancelled, shutting down");
+                    break;
+                }
+
                 if let Some(buffer) = packet_source.next_packet() {
                     let ethernet_packet = match EthernetPacket::new(&buffer) {
                         Some(packet) => packet,
@@ -134,14 +159,12 @@ impl Scanner {
                         }
                         EtherTypes::Ipv4 => {
                             if let Some(stat) = Self::get_stats(ethernet_packet) {
-                                {
-                                    let mut agg_data = agg.lock().unwrap();
+                                let mut agg_data = agg.lock().unwrap();
 
-                                    agg_data
-                                        .entry(stat.key.clone())
-                                        .and_modify(|v| v.size += stat.value.size)
-                                        .or_insert(stats_aggregator::StatValues { size: 0 });
-                                }
+                                agg_data
+                                    .entry(stat.key.clone())
+                                    .and_modify(|v| v.size += stat.value.size)
+                                    .or_insert(stats_aggregator::StatValues { size: 0 });
                             }
                         }
                         _ => continue,
@@ -149,6 +172,9 @@ impl Scanner {
                 }
             }
         });
+
+        self.task_handles.push(stats_handle);
+        self.task_handles.push(listener_handle);
         Ok(())
     }
 
@@ -159,43 +185,55 @@ impl Scanner {
     ) -> AppResult<()> {
         let scanner_outputs_clone = self.scanner_outputs.clone();
         let interface_name = self.interface_name.clone();
-        tokio::spawn(async move {
-            while let Some(event) = scanner_input_rx.recv().await {
-                if !matches!(event, ScannerInputEvent::StartScanning) {
-                    continue;
-                }
+        let tx_cancel_token = self.cancel_token.child_token();
+        let tx_handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tx_cancel_token.cancelled() => {
+                        tracing::debug!("TX worker task cancelled, shutting down");
+                        break;
+                    }
+                    event = scanner_input_rx.recv() => {
+                        match event {
+                            Some(ScannerInputEvent::StartScanning) => {
+                                // Get interface for current backend
+                                let interfaces = pnet_datalink::interfaces();
+                                let nif = interfaces
+                                    .into_iter()
+                                    .rev()
+                                    .find(|nif| {
+                                        nif.is_up()
+                                            && nif.is_running()
+                                            && !nif.is_loopback()
+                                            && nif.name
+                                                .to_lowercase()
+                                                .contains(&interface_name.to_lowercase())
+                                    })
+                                    .unwrap(); // Should exist since backend was created successfully
 
-                // Get interface for current backend
-                let interfaces = pnet_datalink::interfaces();
-                let nif = interfaces
-                    .into_iter()
-                    .rev()
-                    .find(|nif| {
-                        nif.is_up()
-                            && nif.is_running()
-                            && !nif.is_loopback()
-                            && nif.name
-                                .to_lowercase()
-                                .contains(&interface_name.to_lowercase())
-                    })
-                    .unwrap(); // Should exist since backend was created successfully
-
-                for ip_network in nif
-                    .clone()
-                    .ips
-                    .into_iter()
-                    .filter(|&ip_network| ip_network.is_ipv4())
-                {
-                    Self::scan_range(
-                        &nif,
-                        ip_network,
-                        scanner_outputs_clone.clone(),
-                        &mut packet_sink,
-                    )
-                    .await;
+                                for ip_network in nif
+                                    .clone()
+                                    .ips
+                                    .into_iter()
+                                    .filter(|&ip_network| ip_network.is_ipv4())
+                                {
+                                    Self::scan_range(
+                                        &nif,
+                                        ip_network,
+                                        scanner_outputs_clone.clone(),
+                                        &mut packet_sink,
+                                    )
+                                    .await;
+                                }
+                            }
+                            None => break, // Channel closed
+                        }
+                    }
                 }
             }
         });
+
+        self.task_handles.push(tx_handle);
         Ok(())
     }
     async fn scan_range(
@@ -309,8 +347,7 @@ impl Scanner {
         let dst_ip = ipv4_packet.get_destination();
         let next_level_protocol = ipv4_packet.get_next_level_protocol();
 
-        // TODO: Set proper direction when implementing eBPF
-        let direction = stats_aggregator::Direction::None;
+        let direction = stats_aggregator::Direction::None; // Default fallback
 
         let stat = match next_level_protocol {
             IpNextHeaderProtocols::Tcp => {
@@ -347,5 +384,16 @@ impl Scanner {
         };
 
         stat
+    }
+}
+
+impl Drop for Scanner {
+    fn drop(&mut self) {
+        tracing::debug!("Scanner::drop() called, cancelling background tasks");
+        self.cancel_token.cancel();
+        // Abort handles for immediate cleanup
+        for handle in self.task_handles.drain(..) {
+            handle.abort();
+        }
     }
 }

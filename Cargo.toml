@@ -29,6 +29,7 @@ bytes = "1.5"
 ratatui = "0.29.0"
 ringbuf = "0.4.7"
 tokio = { version = "1.40.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
