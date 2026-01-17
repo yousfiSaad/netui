@@ -29,7 +29,7 @@ pub struct EbpfBackendFactory;
 impl BackendFactory for EbpfBackendFactory {
     fn create(
         &self,
-        config: BackendConfig,
+        _config: BackendConfig,
     ) -> Result<(Box<dyn PacketSource>, Box<dyn PacketSink>), Box<dyn Error + Send + Sync>> {
         // Load the eBPF program
         // Note: In a real deployment, we'd embed the bytecode or load from a specific path.

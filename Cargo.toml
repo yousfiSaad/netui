@@ -6,7 +6,6 @@ resolver = "2"
 name = "netui"
 version = "0.1.1"
 authors = ["yousfi saad <yousfi.saad@gmail.com>"]
-license = "MIT"
 edition = "2021"
 keywords = ["cli", "tui", "network", "monitor", "ARP"]
 license-file = "license.txt"

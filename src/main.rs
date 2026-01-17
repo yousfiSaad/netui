@@ -22,7 +22,7 @@ pub mod tui;
 pub mod types;
 pub mod ui;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
