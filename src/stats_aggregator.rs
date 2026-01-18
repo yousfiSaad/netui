@@ -189,8 +189,10 @@ impl StatsAggregator {
                 .iter()
                 .filter(|(pair, _)| !pair.is_local)
                 .for_each(|(pair, speed)| {
+                    // For non-local pairs (incoming/outgoing), dst_ip is the remote host
+                    // This is because IPs are swapped for incoming traffic
                     hosts_pair
-                        .entry(pair.src_ip)
+                        .entry(pair.dst_ip)
                         .and_modify(|sp| {
                             *sp += *speed;
                         })

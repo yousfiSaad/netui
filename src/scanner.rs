@@ -183,13 +183,26 @@ impl Scanner {
                             }
                         }
                         EtherTypes::Ipv4 => {
-                            if let Some(stat) = Self::get_stats(ethernet_packet, &local_ips) {
+                            // Extract statistics from IPv4 packets
+                            if let Some(stat) = Self::get_stats(&ethernet_packet, &local_ips) {
                                 let mut agg_data = agg.lock().unwrap();
 
                                 agg_data
                                     .entry(stat.key.clone())
                                     .and_modify(|v| v.size += stat.value.size)
                                     .or_insert(stats_aggregator::StatValues { size: 0 });
+                            }
+
+                            // Also discover hosts from incoming IPv4 packets
+                            if let Some(host) = Self::get_host_from_ipv4(ethernet_packet, &local_ips) {
+                                match scanner_outputs.send(Event::Scanner(
+                                    crate::event::ScannerEvent::HostFound(host),
+                                )) {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        trace_dbg!(level: Level::ERROR, e);
+                                    }
+                                }
                             }
                         }
                         _ => continue,
@@ -364,8 +377,43 @@ impl Scanner {
         }
     }
 
-    fn get_stats(
+    /// Extract host information from an IPv4 packet.
+    /// Only extracts hosts from incoming packets (dst is local, src is remote)
+    /// to ensure we have reliable MAC addresses from the Ethernet frame.
+    fn get_host_from_ipv4(
         ethernet_packet: EthernetPacket,
+        local_ips: &HashSet<Ipv4Addr>,
+    ) -> Option<Host> {
+        let ipv4_packet = Ipv4Packet::new(ethernet_packet.payload())?;
+        let src_ip = ipv4_packet.get_source();
+        let dst_ip = ipv4_packet.get_destination();
+
+        // Only extract remote hosts from incoming packets
+        // (where dst is local and src is not)
+        let src_is_local = local_ips.contains(&src_ip);
+        let dst_is_local = local_ips.contains(&dst_ip);
+
+        if !dst_is_local || src_is_local {
+            return None;
+        }
+
+        // Extract source MAC from Ethernet frame
+        let src_mac_raw = ethernet_packet.get_source();
+        let src_mac: MacAddr = src_mac_raw.into();
+
+        let host = Host {
+            hostname: None,
+            time: chrono::Local::now(),
+            mac: src_mac,
+            ipv4: src_ip,
+            is_my_device_mac: false,
+            speed: None,
+        };
+        Some(host)
+    }
+
+    fn get_stats(
+        ethernet_packet: &EthernetPacket,
         local_ips: &HashSet<Ipv4Addr>,
     ) -> Option<stats_aggregator::StatItem> {
         let ipv4_packet = Ipv4Packet::new(ethernet_packet.payload())?;
