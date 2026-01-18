@@ -3,7 +3,7 @@ use pnet::packet::{
     Packet,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr},
     sync::{Arc, Mutex},
     time::Duration,
@@ -50,6 +50,7 @@ pub struct Scanner {
     interface_name: String,
     cancel_token: CancellationToken,
     task_handles: Vec<JoinHandle<()>>,
+    local_ips: HashSet<Ipv4Addr>,
 }
 
 impl Scanner {
@@ -80,12 +81,35 @@ impl Scanner {
         let (scanner_input_tx, scanner_input_rx) = unbounded_channel::<ScannerInputEvent>();
         let cancel_token = CancellationToken::new();
 
+        // Get local IPs from the interface for direction detection
+        let interfaces = pnet_datalink::interfaces();
+        let local_ips: HashSet<Ipv4Addr> = interfaces
+            .iter()
+            .filter(|nif| {
+                nif.is_up()
+                    && nif.is_running()
+                    && !nif.is_loopback()
+                    && nif.name
+                        .to_lowercase()
+                        .contains(&interface_name.to_lowercase())
+            })
+            .flat_map(|nif| {
+                nif.ips
+                    .iter()
+                    .filter_map(|ip_network| match ip_network.ip() {
+                        IpAddr::V4(ipv4) => Some(ipv4),
+                        _ => None,
+                    })
+            })
+            .collect();
+
         let mut scanner = Self {
             scanner_outputs,
             scanner_input_tx,
             interface_name,
             cancel_token,
             task_handles: Vec::new(),
+            local_ips,
         };
 
         scanner.start_listening(packet_source)?;
@@ -102,6 +126,7 @@ impl Scanner {
         let scanner_outputs_clone = scanner_outputs.clone();
         let agg: Arc<Mutex<StatsMap>> = Arc::new(Mutex::new(HashMap::new()));
         let agg_clone = agg.clone();
+        let local_ips = self.local_ips.clone();
 
         // Stats aggregator task
         let stats_cancel_token = self.cancel_token.child_token();
@@ -158,7 +183,7 @@ impl Scanner {
                             }
                         }
                         EtherTypes::Ipv4 => {
-                            if let Some(stat) = Self::get_stats(ethernet_packet) {
+                            if let Some(stat) = Self::get_stats(ethernet_packet, &local_ips) {
                                 let mut agg_data = agg.lock().unwrap();
 
                                 agg_data
@@ -341,13 +366,26 @@ impl Scanner {
 
     fn get_stats(
         ethernet_packet: EthernetPacket,
+        local_ips: &HashSet<Ipv4Addr>,
     ) -> Option<stats_aggregator::StatItem> {
         let ipv4_packet = Ipv4Packet::new(ethernet_packet.payload())?;
         let src_ip = ipv4_packet.get_source();
         let dst_ip = ipv4_packet.get_destination();
         let next_level_protocol = ipv4_packet.get_next_level_protocol();
 
-        let direction = stats_aggregator::Direction::None; // Default fallback
+        // Determine direction based on local IPs
+        let src_is_local = local_ips.contains(&src_ip);
+        let dst_is_local = local_ips.contains(&dst_ip);
+
+        let direction = if src_is_local && dst_is_local {
+            stats_aggregator::Direction::Local
+        } else if src_is_local {
+            stats_aggregator::Direction::Outgoing
+        } else if dst_is_local {
+            stats_aggregator::Direction::Incomming
+        } else {
+            stats_aggregator::Direction::None
+        };
 
         let stat = match next_level_protocol {
             IpNextHeaderProtocols::Tcp => {
