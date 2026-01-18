@@ -47,13 +47,16 @@ async fn main() -> AppResult<()> {
     let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
     let mut tui = Tui::new(terminal);
+
+    // IMPORTANT: Initialize terminal (raw mode) BEFORE creating EventHandler,
+    // because EventStream requires the terminal to be in raw mode.
+    tui.init()?;
+
     let mut events = EventHandler::new(250);
     let scanner = Scanner::new(events.get_sender_clone(), interface_name, args.backend)?;
 
     // Create an application.
     let mut app = App::new(scanner)?;
-
-    tui.init()?;
     // Start the main loop.
     while app.running {
         // Render the user interface.
