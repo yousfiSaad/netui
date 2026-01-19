@@ -125,6 +125,10 @@ impl<'a> HostsTable<'a> {
             .collect::<Row>()
             .style(header_style)
             .height(1);
+
+        // Cache current time once per render instead of calling for each row
+        let now = Local::now();
+
         let rows = self.items.iter().enumerate().map(|(i, host)| {
             let color = match i % 2 {
                 0 => self.colors.normal_row_color,
@@ -154,7 +158,7 @@ impl<'a> HostsTable<'a> {
                     }
                 },
                 {
-                    let diff = Local::now().timestamp_millis() - host.time.timestamp_millis();
+                    let diff = now.timestamp_millis() - host.time.timestamp_millis();
                     let durr =
                         Duration::new(diff / 1000, (diff % 1000) as u32 * 1000).unwrap_or_default();
                     format!(
@@ -162,7 +166,7 @@ impl<'a> HostsTable<'a> {
                         durr.num_minutes(),
                         durr.num_seconds() - (durr.num_minutes() * 60)
                     )
-                }, // data.time.to_string(),
+                },
             ];
             row.into_iter()
                 .map(|content| Cell::from(Text::from(content)))

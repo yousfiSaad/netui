@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::{error, net::Ipv4Addr};
+use std::{collections::HashMap, error, net::Ipv4Addr};
 
 use crate::{
     event::ScannerEvent,
@@ -21,6 +21,8 @@ pub struct App {
     pub sending_arps: bool,
     /// hosts
     pub hosts: Vec<Host>,
+    /// Index for O(1) host lookup by IPv4 address
+    host_index: HashMap<Ipv4Addr, usize>,
     pub table_state: TableState,
     pub scroll_state: ScrollbarState,
     pub interface: String,
@@ -54,6 +56,7 @@ impl App {
             running: true,
             sending_arps: false,
             hosts: vec![],
+            host_index: HashMap::new(),
             interface: "".to_string(),
             table_state: TableState::default(),
             scanner,
@@ -124,10 +127,14 @@ impl App {
     pub fn handle_worker_events(&mut self, worker_event: ScannerEvent) -> AppResult<()> {
         match worker_event {
             ScannerEvent::HostFound(mut host) => {
-                if let Some(h) = self.hosts.iter_mut().find(|h| h == &&host) {
-                    host.speed = h.speed;
-                    *h = host;
+                if let Some(&index) = self.host_index.get(&host.ipv4) {
+                    // Update existing host - O(1) lookup
+                    host.speed = self.hosts[index].speed;
+                    self.hosts[index] = host;
                 } else {
+                    // Add new host
+                    let index = self.hosts.len();
+                    self.host_index.insert(host.ipv4, index);
                     self.hosts.push(host);
                     self.scroll_state = self
                         .scroll_state
@@ -202,6 +209,14 @@ impl App {
             .clone()
             .into_iter()
             .filter(|h| h.time > time)
+            .collect();
+
+        // Rebuild the host index after filtering
+        self.host_index = self
+            .hosts
+            .iter()
+            .enumerate()
+            .map(|(i, h)| (h.ipv4, i))
             .collect();
 
         Some(())

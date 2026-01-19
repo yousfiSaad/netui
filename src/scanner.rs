@@ -51,6 +51,7 @@ pub struct Scanner {
     cancel_token: CancellationToken,
     task_handles: Vec<JoinHandle<()>>,
     local_ips: HashSet<Ipv4Addr>,
+    discovered_hosts: Arc<Mutex<HashSet<Ipv4Addr>>>,
 }
 
 impl Scanner {
@@ -110,6 +111,7 @@ impl Scanner {
             cancel_token,
             task_handles: Vec::new(),
             local_ips,
+            discovered_hosts: Arc::new(Mutex::new(HashSet::new())),
         };
 
         scanner.start_listening(packet_source)?;
@@ -127,6 +129,7 @@ impl Scanner {
         let agg: Arc<Mutex<StatsMap>> = Arc::new(Mutex::new(HashMap::new()));
         let agg_clone = agg.clone();
         let local_ips = self.local_ips.clone();
+        let discovered_hosts = self.discovered_hosts.clone();
 
         // Stats aggregator task
         let stats_cancel_token = self.cancel_token.child_token();
@@ -195,12 +198,20 @@ impl Scanner {
 
                             // Also discover hosts from incoming IPv4 packets
                             if let Some(host) = Self::get_host_from_ipv4(ethernet_packet, &local_ips) {
-                                match scanner_outputs.send(Event::Scanner(
-                                    crate::event::ScannerEvent::HostFound(host),
-                                )) {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        trace_dbg!(level: Level::ERROR, e);
+                                // Check if this is a new host before sending event
+                                let is_new_host = {
+                                    let mut discovered = discovered_hosts.lock().unwrap();
+                                    discovered.insert(host.ipv4)
+                                };
+
+                                if is_new_host {
+                                    match scanner_outputs.send(Event::Scanner(
+                                        crate::event::ScannerEvent::HostFound(host),
+                                    )) {
+                                        Ok(_) => {}
+                                        Err(e) => {
+                                            trace_dbg!(level: Level::ERROR, e);
+                                        }
                                     }
                                 }
                             }
