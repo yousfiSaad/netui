@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 aya-ebpf = "0.1.0"
 aya-log-ebpf = "0.1.0"
+network-types = "0.1"
 
 [build-dependencies]
 aya-build = "0.1.3"
