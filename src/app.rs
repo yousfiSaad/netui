@@ -204,6 +204,15 @@ impl App {
     fn clean_host_and_olders(&mut self) -> Option<()> {
         let host = self.hosts.get(self.table_state.selected()?)?;
         let time = host.time;
+
+        // Collect IPs of hosts that will be removed
+        let removed_ips: Vec<Ipv4Addr> = self
+            .hosts
+            .iter()
+            .filter(|h| h.time <= time)
+            .map(|h| h.ipv4)
+            .collect();
+
         self.hosts = self
             .hosts
             .clone()
@@ -218,6 +227,9 @@ impl App {
             .enumerate()
             .map(|(i, h)| (h.ipv4, i))
             .collect();
+
+        // Remove hosts from scanner's discovered set so they can be re-discovered
+        self.scanner.remove_discovered_hosts(&removed_ips);
 
         Some(())
     }

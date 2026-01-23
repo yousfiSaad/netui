@@ -367,6 +367,15 @@ impl Scanner {
             .unwrap();
     }
 
+    /// Remove hosts from the discovered set, allowing them to be re-discovered.
+    /// This should be called when hosts are cleared/deleted from the UI.
+    pub fn remove_discovered_hosts(&self, ips: &[Ipv4Addr]) {
+        let mut discovered = self.discovered_hosts.lock().unwrap();
+        for ip in ips {
+            discovered.remove(ip);
+        }
+    }
+
     fn get_host_infos(buffer: &[u8]) -> Option<Host> {
         let arp_packet = ArpPacket::new(&buffer[MutableEthernetPacket::minimum_packet_size()..]);
         if let Some(arp) = arp_packet {
@@ -437,10 +446,13 @@ impl Scanner {
         let dst_is_local = local_ips.contains(&dst_ip);
 
         let direction = if src_is_local && dst_is_local {
+            tracing::debug!("LOCAL: src_ip={} (local) -> dst_ip={} (local)", src_ip, dst_ip);
             stats_aggregator::Direction::Local
         } else if src_is_local {
+            tracing::debug!("UPLOAD: src_ip={} (local) -> dst_ip={} (remote)", src_ip, dst_ip);
             stats_aggregator::Direction::Outgoing
         } else if dst_is_local {
+            tracing::debug!("DOWNLOAD: src_ip={} (remote) -> dst_ip={} (local)", src_ip, dst_ip);
             stats_aggregator::Direction::Incomming
         } else {
             stats_aggregator::Direction::None

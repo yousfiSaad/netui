@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use aya::{
     maps::MapData,
     maps::perf::AsyncPerfEventArray,
-    programs::Xdp,
+    programs::{Xdp, SchedClassifier, tc, TcAttachType, xdp::XdpLinkId, tc::SchedClassifierLinkId},
     Ebpf,
 };
 use aya_log::EbpfLogger;
@@ -41,6 +41,8 @@ pub struct PacketEvent {
     pub protocol: u8,
     /// Valid flags: bit 0 = has_ip, bit 1 = has_arp
     pub flags: u8,
+    /// Which hook captured this: 0=XDP, 1=TC ingress, 2=TC egress
+    pub hook_source: u8,
 }
 
 /// Packet source that reads from eBPF PerfEventArray via an unbounded channel
@@ -52,6 +54,10 @@ pub struct EbpfPacketSource {
     packet_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     /// Keep the BPF object alive to prevent program detachment
     _bpf: Ebpf,
+    /// Keep the XDP link alive to prevent program detachment
+    _xdp_link_id: Option<XdpLinkId>,
+    /// Keep the TC egress link alive to prevent program detachment
+    _tc_egress_link_id: Option<SchedClassifierLinkId>,
 }
 
 impl PacketSource for EbpfPacketSource {
@@ -170,7 +176,7 @@ fn spawn_packet_readers(
 
         // Spawn a task to read from this CPU's buffer
         task::spawn(async move {
-            // Each PacketEvent struct is now smaller (6+6+2+4+4+4+1+1 = 28 bytes)
+            // Each PacketEvent struct is now smaller (6+6+2+4+4+4+1+1+1 = 29 bytes)
             // We need buffers that can hold multiple packets
             let mut packets = vec![BytesMut::with_capacity(std::mem::size_of::<PacketEvent>()); 10];
             let mut error_count = 0;
@@ -191,6 +197,21 @@ fn spawn_packet_readers(
                                 unsafe {
                                     let event_ptr = packet_buf.as_ptr() as *const PacketEvent;
                                     let event = &*event_ptr;
+
+                                    // Debug logging: log hook source for each packet
+                                    let hook_name = match event.hook_source {
+                                        0 => "XDP",
+                                        1 => "TC_INGRESS",
+                                        2 => "TC_EGRESS",
+                                        _ => "UNKNOWN",
+                                    };
+                                    tracing::debug!(
+                                        "Packet from {}: src_ip={:?} dst_ip={:?} len={}",
+                                        hook_name,
+                                        event.src_ip,
+                                        event.dst_ip,
+                                        event.len
+                                    );
 
                                     // Reconstruct Ethernet packet from extracted metadata
                                     // We need to set the IP total_length field and pad to match,
@@ -299,12 +320,49 @@ impl BackendFactory for EbpfBackendFactory {
             .map_err(|e| format!("Failed to load XDP program: {}", e))?;
 
         // Attach XDP to the interface (using interface name, not index)
-        program.attach(
+        // Use SKB_MODE for better compatibility with virtualized environments (virtio_net, Lima, etc.)
+        // SKB mode works on any interface at the cost of slightly less performance than native mode
+        let xdp_link_id = program.attach(
             &config.interface_name,
-            aya::programs::XdpFlags::default(),
+            aya::programs::XdpFlags::SKB_MODE,
         ).map_err(|e| format!("Failed to attach XDP program to interface {}: {}", config.interface_name, e))?;
 
         eprintln!("Successfully attached XDP program to interface: {}", config.interface_name);
+
+        // ======== TC Egress Program for Upload Bandwidth ========
+        // XDP captures ingress (download). TC egress captures upload traffic.
+        // We DON'T use TC ingress because XDP already handles ingress,
+        // and using both would count download packets twice!
+
+        // 1. Set up clsact qdisc (required for TC egress attachment)
+        eprintln!("Setting up clsact qdisc for TC egress...");
+        if let Err(e) = tc::qdisc_add_clsact(&config.interface_name) {
+            // clsact may already exist - log but continue
+            eprintln!("Note: clsact qdisc setup (may already exist): {}", e);
+        }
+
+        // 2. Load and attach TC egress program - THIS CAPTURES UPLOAD!
+        eprintln!("Loading TC egress program...");
+        let tc_egress: &mut SchedClassifier = bpf
+            .program_mut("tc_egress_netui")
+            .ok_or("TC egress program 'tc_egress_netui' not found in eBPF bytecode")?
+            .try_into()
+            .map_err(|_| "Failed to convert program to SchedClassifier")?;
+
+        tc_egress
+            .load()
+            .map_err(|e| format!("Failed to load TC egress program: {}", e))?;
+
+        eprintln!("Attaching TC egress program (captures upload bandwidth)...");
+        // Attach TC egress and keep the link ID to prevent program detachment
+        let tc_egress_link_id = tc_egress
+            .attach(&config.interface_name, TcAttachType::Egress)
+            .map_err(|e| format!("Failed to attach TC egress program: {}", e))?;
+
+        // Verify TC egress attachment
+        eprintln!("Successfully attached TC egress program (captures upload bandwidth)");
+        tracing::info!("TC egress attached - this program captures packets leaving the interface (upload)");
+        // ======== End TC Programs ========
 
         // Take the PerfEventArray map from the BPF object and convert to async
         let perf_map = bpf
@@ -317,10 +375,12 @@ impl BackendFactory for EbpfBackendFactory {
         // Spawn packet readers (this is synchronous, just spawns background tasks)
         let packet_rx = spawn_packet_readers(&mut async_perf);
 
-        // Create packet source
+        // Create packet source with link IDs to keep programs attached
         let packet_source = Box::new(EbpfPacketSource {
             packet_rx,
             _bpf: bpf,
+            _xdp_link_id: Some(xdp_link_id),
+            _tc_egress_link_id: Some(tc_egress_link_id),
         });
 
         // Create packet sink (hybrid: eBPF for receive, pnet for send)
