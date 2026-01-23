@@ -22,6 +22,12 @@ fn main() -> anyhow::Result<()> {
             out_dir, bpf_target
         );
 
+        // FLAKEY BUILD FIX:
+        // Remove the old binary to ensure we don't accidentally pick up a stale one
+        // if the build fails. This invalidates the `exists()` check below unless
+        // the new build successfully re-creates it.
+        let _ = fs::remove_file(&src);
+
         // Run aya-build
         let result = aya_build::build_ebpf(
             [Package {
