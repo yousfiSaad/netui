@@ -498,7 +498,10 @@ impl Scanner {
         let size_bits: u128 = if let Some(len) = original_len {
             // eBPF path: use the accurate packet length from kernel
             // This is the full packet size as seen on the wire
-            8 * len as u128
+            let bits = 8 * len as u128;
+            tracing::info!("BANDWIDTH: original_len={} bytes -> {} bits ({} bytes) direction={:?}",
+                len, bits, len, direction);
+            bits
         } else {
             // pnet path: calculate from parsed payload
             match next_level_protocol {

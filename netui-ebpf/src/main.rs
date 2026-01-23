@@ -196,17 +196,24 @@ unsafe fn try_tc_netui(ctx: TcContext) -> Result<i32, i32> {
 
     // Set hook source to TC egress (2) - we only use egress for upload bandwidth
     event.hook_source = 2;
+    
+    // IMPORTANT: For TC programs (SKB), data_end - data only covers the linear part
+    // of the packet. For correct bandwidth calculation, we MUST use ctx.len()
+    // which includes the full length of the packet (including paged data).
+    event.len = ctx.len();
+    
     let packet_len = event.len;
 
     // Log for debugging
-    info!(
-        &ctx,
-        "TC: len={} src_ip={:x} dst_ip={:x} proto={}",
-        packet_len,
-        event.src_ip,
-        event.dst_ip,
-        event.protocol
-    );
+    // Log for debugging - REMOVED for production
+    // info!(
+    //     &ctx,
+    //     "TC: len={} src_ip={:x} dst_ip={:x} proto={}",
+    //     packet_len,
+    //     event.src_ip,
+    //     event.dst_ip,
+    //     event.protocol
+    // );
 
     // Send event to userspace via PerfEventArray
     EVENTS.output(&ctx, &event, 0);
