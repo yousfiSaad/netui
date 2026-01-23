@@ -504,19 +504,10 @@ impl Scanner {
             bits
         } else {
             // pnet path: calculate from parsed payload
-            match next_level_protocol {
-                IpNextHeaderProtocols::Tcp => {
-                    TcpPacket::new(ipv4_packet.payload())
-                        .map(|p| 8 * p.payload().len() as u128)
-                        .unwrap_or(0)
-                }
-                IpNextHeaderProtocols::Udp => {
-                    UdpPacket::new(ipv4_packet.payload())
-                        .map(|p| 8 * p.payload().len() as u128)
-                        .unwrap_or(0)
-                }
-                _ => 0,
-            }
+            // Use IPv4 total length (includes IP header + data) plus Ethernet header (14 bytes)
+            // This ensures we count the full packet size on wire, matching eBPF behavior
+            let len = (ipv4_packet.get_total_length() as u128) + 14;
+            len * 8
         };
 
         // Only create stat for TCP/UDP (need ports for the key)
