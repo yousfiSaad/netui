@@ -2,7 +2,7 @@ use std::{error::Error, time::Duration};
 
 use pnet_datalink::{channel, Channel, Config, DataLinkReceiver, DataLinkSender, NetworkInterface};
 
-use super::{BackendConfig, BackendFactory, PacketSink, PacketSource};
+use super::{BackendConfig, BackendFactory, PacketSink, PacketSource, PacketWithContext};
 
 /// Packet source implementation using pnet
 pub struct PnetPacketSource {
@@ -10,9 +10,13 @@ pub struct PnetPacketSource {
 }
 
 impl PacketSource for PnetPacketSource {
-    fn next_packet(&mut self) -> Option<Vec<u8>> {
+    fn next_packet(&mut self) -> Option<PacketWithContext> {
         match self.receiver.next() {
-            Ok(buf) => Some(buf.to_vec()),
+            Ok(buf) => Some(PacketWithContext {
+                data: buf.to_vec(),
+                hook_source: None, // pnet doesn't have hook source info
+                original_len: None, // pnet: use parsed packet length
+            }),
             Err(_) => None,
         }
     }

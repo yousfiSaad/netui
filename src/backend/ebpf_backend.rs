@@ -16,7 +16,7 @@ use tokio::task;
 #[cfg(feature = "pnet-backend")]
 use pnet_datalink::{self, Channel, Config, DataLinkSender, NetworkInterface};
 
-use crate::backend::{BackendConfig, BackendFactory, PacketSink, PacketSource};
+use crate::backend::{BackendConfig, BackendFactory, PacketSink, PacketSource, PacketWithContext};
 
 /// Packet event structure - must match the eBPF side definition
 ///
@@ -51,7 +51,7 @@ pub struct PacketEvent {
 /// async tasks reading from the per-CPU perf event buffers.
 pub struct EbpfPacketSource {
     /// Channel receiver for packets from the async readers
-    packet_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    packet_rx: mpsc::UnboundedReceiver<PacketWithContext>,
     /// Keep the BPF object alive to prevent program detachment
     _bpf: Ebpf,
     /// Keep the XDP link alive to prevent program detachment
@@ -61,7 +61,7 @@ pub struct EbpfPacketSource {
 }
 
 impl PacketSource for EbpfPacketSource {
-    fn next_packet(&mut self) -> Option<Vec<u8>> {
+    fn next_packet(&mut self) -> Option<PacketWithContext> {
         // Try to receive a packet from the channel without blocking
         // The channel is populated by async tasks reading from PerfEventArray
         self.packet_rx.try_recv().ok()
@@ -142,10 +142,10 @@ impl PacketSink for EbpfPacketSink {
 /// Each task continuously reads packets and sends them to the channel.
 ///
 /// # Returns
-/// A receiver that can be used to get packets from all CPU buffers
+/// A receiver that can be used to get packets with context from all CPU buffers
 fn spawn_packet_readers(
     perf_array: &mut AsyncPerfEventArray<MapData>,
-) -> mpsc::UnboundedReceiver<Vec<u8>> {
+) -> mpsc::UnboundedReceiver<PacketWithContext> {
     let (tx, rx) = mpsc::unbounded_channel();
 
     // Get the number of online CPUs
@@ -256,8 +256,13 @@ fn spawn_packet_readers(
                                         }
                                     }
 
-                                    // Send reconstructed packet to channel
-                                    if tx_clone.send(packet).is_err() {
+                                    // Send reconstructed packet with hook source to channel
+                                    let packet_with_ctx = PacketWithContext {
+                                        data: packet,
+                                        hook_source: Some(event.hook_source),
+                                        original_len: Some(event.len),
+                                    };
+                                    if tx_clone.send(packet_with_ctx).is_err() {
                                         // Channel closed, stop reading gracefully
                                         return;
                                     }

@@ -11,9 +11,29 @@ pub enum BackendType {
     Ebpf,
 }
 
+/// Packet with optional hook source context from eBPF
+///
+/// When using the eBPF backend, packets include `hook_source` to indicate
+/// where they were captured:
+/// - 0 = XDP (ingress/download)
+/// - 1 = TC ingress (not used - XDP handles ingress)
+/// - 2 = TC egress (egress/upload)
+///
+/// For the pnet backend, `hook_source` is None and direction is determined
+/// from IP addresses.
+#[derive(Debug, Clone)]
+pub struct PacketWithContext {
+    pub data: Vec<u8>,
+    /// Hook source: Some(0)=XDP/ingress, Some(2)=TC egress/upload, None=unknown/pnet
+    pub hook_source: Option<u8>,
+    /// Original packet length from wire (for eBPF, this comes from the kernel)
+    /// When None, calculate from data.len() or parsed headers
+    pub original_len: Option<u32>,
+}
+
 /// Source of network packets - can receive packets
 pub trait PacketSource: Send + 'static {
-    fn next_packet(&mut self) -> Option<Vec<u8>>;
+    fn next_packet(&mut self) -> Option<PacketWithContext>;
 }
 
 /// Sink for network packets - can send packets

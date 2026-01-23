@@ -311,7 +311,7 @@ pub struct StatValues {
 
 const B_1024: f64 = 1024f64;
 fn format_size(bits: u128) -> String {
-    let bits = f64::from(bits as u32);
+    let bits = bits as f64;
     let kbits = if bits < B_1024 {
         return format!("{:.2} Bit/s", bits);
     } else {
