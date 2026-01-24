@@ -2,6 +2,7 @@ use std::{error::Error, time::Duration};
 
 use pnet_datalink::{channel, Channel, Config, DataLinkReceiver, DataLinkSender, NetworkInterface};
 
+use crate::interface_utils;
 use super::{BackendConfig, BackendFactory, PacketSink, PacketSource, PacketWithContext};
 
 /// Packet source implementation using pnet
@@ -46,18 +47,7 @@ impl BackendFactory for PnetBackendFactory {
         &self,
         config: BackendConfig,
     ) -> Result<(Box<dyn PacketSource>, Box<dyn PacketSink>), Box<dyn Error + Send + Sync>> {
-        let interfaces = pnet_datalink::interfaces();
-        let interface = interfaces
-            .into_iter()
-            .rev()
-            .find(|n| {
-                n.is_up()
-                    && n.is_running()
-                    && !n.is_loopback()
-                    && n.name
-                        .to_lowercase()
-                        .contains(&config.interface_name.to_lowercase())
-            })
+        let interface = interface_utils::find_interface(&config.interface_name)
             .ok_or_else(|| format!("Interface not found: {}", config.interface_name))?;
 
         let channel_config = Config {

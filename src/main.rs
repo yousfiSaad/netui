@@ -13,8 +13,10 @@ use crate::{
 
 pub mod app;
 pub mod backend;
+pub mod constants;
 pub mod event;
 pub mod hosts_table;
+pub mod interface_utils;
 pub mod logging;
 pub mod scanner;
 pub mod stats_aggregator;

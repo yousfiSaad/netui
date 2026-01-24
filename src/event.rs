@@ -63,20 +63,32 @@ impl EventHandler {
                     break;
                   }
                   _ = tick_delay => {
-                    sender_clone.send(Event::Tick).unwrap();
+                    if let Err(e) = sender_clone.send(Event::Tick) {
+                      tracing::error!("Failed to send Tick event: {}", e);
+                      break;
+                    }
                   }
                   Some(Ok(evt)) = crossterm_event => {
                     match evt {
                       CrosstermEvent::Key(key) => {
                         if key.kind == crossterm::event::KeyEventKind::Press {
-                          sender_clone.send(Event::Key(key)).unwrap();
+                          if let Err(e) = sender_clone.send(Event::Key(key)) {
+                            tracing::error!("Failed to send Key event: {}", e);
+                            break;
+                          }
                         }
                       },
                       CrosstermEvent::Mouse(mouse) => {
-                        sender_clone.send(Event::Mouse(mouse)).unwrap();
+                        if let Err(e) = sender_clone.send(Event::Mouse(mouse)) {
+                          tracing::error!("Failed to send Mouse event: {}", e);
+                          break;
+                        }
                       },
                       CrosstermEvent::Resize(x, y) => {
-                        sender_clone.send(Event::Resize(x, y)).unwrap();
+                        if let Err(e) = sender_clone.send(Event::Resize(x, y)) {
+                          tracing::error!("Failed to send Resize event: {}", e);
+                          break;
+                        }
                       },
                       CrosstermEvent::FocusLost => {
                       },

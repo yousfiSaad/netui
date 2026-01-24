@@ -28,7 +28,9 @@ use tokio::{
 use crate::{
     app::{AppResult, Host},
     backend::{BackendConfig, BackendFactory, BackendType, PacketSink, PacketSource, PnetBackendFactory},
+    constants::{ebpf, network, timing},
     event::{Event, ScannerEvent},
+    interface_utils,
     stats_aggregator::{self, StatsMap},
     trace_dbg,
     types::MacAddr,
@@ -73,35 +75,23 @@ impl Scanner {
             .create(backend_config)
             .map_err(|e| format!("Failed to create backend: {}", e))?;
 
-        scanner_outputs
-            .send(Event::Scanner(ScannerEvent::InterfaceName(
-                interface_name.clone(),
-            )))
-            .unwrap();
+        if let Err(e) = scanner_outputs.send(Event::Scanner(ScannerEvent::InterfaceName(
+            interface_name.clone(),
+        ))) {
+            return Err(format!("Failed to send interface name event: {}", e).into());
+        }
 
         let (scanner_input_tx, scanner_input_rx) = unbounded_channel::<ScannerInputEvent>();
         let cancel_token = CancellationToken::new();
 
         // Get local IPs from the interface for direction detection
-        let interfaces = pnet_datalink::interfaces();
-        let local_ips: HashSet<Ipv4Addr> = interfaces
+        let local_ips: HashSet<Ipv4Addr> = pnet_datalink::interfaces()
             .iter()
             .filter(|nif| {
-                nif.is_up()
-                    && nif.is_running()
-                    && !nif.is_loopback()
-                    && nif.name
-                        .to_lowercase()
-                        .contains(&interface_name.to_lowercase())
+                interface_utils::is_interface_active(nif)
+                    && interface_utils::interface_matches(nif, &interface_name)
             })
-            .flat_map(|nif| {
-                nif.ips
-                    .iter()
-                    .filter_map(|ip_network| match ip_network.ip() {
-                        IpAddr::V4(ipv4) => Some(ipv4),
-                        _ => None,
-                    })
-            })
+            .flat_map(|nif| interface_utils::get_interface_ipv4_addrs(nif))
             .collect();
 
         let mut scanner = Self {
@@ -144,13 +134,20 @@ impl Scanner {
                     _ = interval.tick() => {
                         let data_clone;
                         {
-                            let mut data = agg_clone.lock().unwrap();
+                            let mut data = match agg_clone.lock() {
+                                Ok(guard) => guard,
+                                Err(e) => {
+                                    tracing::error!("Stats aggregator mutex poisoned, recovering: {}", e);
+                                    e.into_inner()
+                                }
+                            };
                             data_clone = data.clone();
                             *data = HashMap::new();
                         }
-                        scanner_outputs_clone
-                            .send(Event::Scanner(ScannerEvent::StatTick(data_clone)))
-                            .unwrap();
+                        if let Err(e) = scanner_outputs_clone.send(Event::Scanner(ScannerEvent::StatTick(data_clone))) {
+                            tracing::error!("Failed to send StatTick event: {}", e);
+                            break;
+                        }
                     }
                 }
             }
@@ -194,7 +191,13 @@ impl Scanner {
                             // Pass hook_source for authoritative direction detection (eBPF)
                             // Pass original_len for accurate bandwidth calculation (eBPF)
                             if let Some(stat) = Self::get_stats(&ethernet_packet, &local_ips, hook_source, original_len) {
-                                let mut agg_data = agg.lock().unwrap();
+                                let mut agg_data = match agg.lock() {
+                                    Ok(guard) => guard,
+                                    Err(e) => {
+                                        tracing::error!("Stats aggregator mutex poisoned (packet listener), recovering: {}", e);
+                                        e.into_inner()
+                                    }
+                                };
 
                                 agg_data
                                     .entry(stat.key.clone())
@@ -206,7 +209,13 @@ impl Scanner {
                             if let Some(host) = Self::get_host_from_ipv4(ethernet_packet, &local_ips) {
                                 // Check if this is a new host before sending event
                                 let is_new_host = {
-                                    let mut discovered = discovered_hosts.lock().unwrap();
+                                    let mut discovered = match discovered_hosts.lock() {
+                                        Ok(guard) => guard,
+                                        Err(e) => {
+                                            tracing::error!("Discovered hosts mutex poisoned, recovering: {}", e);
+                                            e.into_inner()
+                                        }
+                                    };
                                     discovered.insert(host.ipv4)
                                 };
 
@@ -252,19 +261,10 @@ impl Scanner {
                         match event {
                             Some(ScannerInputEvent::StartScanning) => {
                                 // Get interface for current backend
-                                let interfaces = pnet_datalink::interfaces();
-                                let nif = interfaces
-                                    .into_iter()
-                                    .rev()
-                                    .find(|nif| {
-                                        nif.is_up()
-                                            && nif.is_running()
-                                            && !nif.is_loopback()
-                                            && nif.name
-                                                .to_lowercase()
-                                                .contains(&interface_name.to_lowercase())
-                                    })
-                                    .unwrap(); // Should exist since backend was created successfully
+                                let Some(nif) = interface_utils::find_interface(&interface_name) else {
+                                    tracing::error!("Interface not found for scanning: {}", interface_name);
+                                    continue;
+                                };
 
                                 for ip_network in nif
                                     .clone()
@@ -297,20 +297,21 @@ impl Scanner {
         scanner_outputs: mpsc::UnboundedSender<Event>,
         packet_sink: &mut Box<dyn PacketSink>,
     ) {
-        scanner_outputs
-            .send(Event::Scanner(crate::event::ScannerEvent::BeginScan))
-            .unwrap();
+        if let Err(e) = scanner_outputs.send(Event::Scanner(crate::event::ScannerEvent::BeginScan)) {
+            tracing::error!("Failed to send BeginScan event: {}", e);
+            return;
+        }
         let sender_clone = scanner_outputs.clone();
         let sender = sender_clone;
         for ip_addr in ip_network.iter() {
             if let IpAddr::V4(ipv4_address) = ip_addr {
-                sleep(Duration::from_millis(37)).await;
+                sleep(Duration::from_millis(timing::ARP_SCAN_DELAY_MS)).await;
                 let _ = Self::send_arp_request(packet_sink, nif, ipv4_address);
             }
         }
-        sender
-            .send(Event::Scanner(crate::event::ScannerEvent::Complete))
-            .unwrap();
+        if let Err(e) = sender.send(Event::Scanner(crate::event::ScannerEvent::Complete)) {
+            tracing::error!("Failed to send Complete event: {}", e);
+        }
     }
 
     fn send_arp_request(
@@ -318,7 +319,7 @@ impl Scanner {
         interface: &NetworkInterface,
         target_ip: Ipv4Addr,
     ) -> AppResult<()> {
-        let mut ethernet_buffer = vec![0u8; 42];
+        let mut ethernet_buffer = vec![0u8; network::ETHERNET_ARP_BUFFER_SIZE];
         let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer)
             .ok_or("Failed to create Ethernet packet from buffer")?;
 
@@ -331,7 +332,7 @@ impl Scanner {
         let selected_ethertype = EtherTypes::Arp;
         ethernet_packet.set_ethertype(selected_ethertype);
 
-        let mut arp_buffer = [0u8; 28];
+        let mut arp_buffer = [0u8; network::ARP_PACKET_SIZE];
         let mut arp_packet = MutableArpPacket::new(&mut arp_buffer)
             .ok_or("Failed to create ARP packet from buffer")?;
 
@@ -368,15 +369,21 @@ impl Scanner {
     }
 
     pub fn send_arp_packets(&self) {
-        self.scanner_input_tx
-            .send(ScannerInputEvent::StartScanning)
-            .unwrap();
+        if let Err(e) = self.scanner_input_tx.send(ScannerInputEvent::StartScanning) {
+            tracing::error!("Failed to send StartScanning event: {}", e);
+        }
     }
 
     /// Remove hosts from the discovered set, allowing them to be re-discovered.
     /// This should be called when hosts are cleared/deleted from the UI.
     pub fn remove_discovered_hosts(&self, ips: &[Ipv4Addr]) {
-        let mut discovered = self.discovered_hosts.lock().unwrap();
+        let mut discovered = match self.discovered_hosts.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Discovered hosts mutex poisoned in remove_discovered_hosts, recovering: {}", e);
+                e.into_inner()
+            }
+        };
         for ip in ips {
             discovered.remove(ip);
         }
@@ -401,6 +408,136 @@ impl Scanner {
         } else {
             None
         }
+    }
+
+    /// Determine the direction of a packet based on hook source and IP addresses.
+    ///
+    /// # Arguments
+    /// * `src_ip` - Source IP address
+    /// * `dst_ip` - Destination IP address
+    /// * `local_ips` - Set of local IP addresses
+    /// * `hook_source` - Optional hook source from eBPF (0=XDP, 1=TC ingress, 2=TC egress)
+    ///
+    /// # Returns
+    /// The detected direction (Incoming, Outgoing, Local, or None)
+    fn determine_packet_direction(
+        src_ip: Ipv4Addr,
+        dst_ip: Ipv4Addr,
+        local_ips: &HashSet<Ipv4Addr>,
+        hook_source: Option<u8>,
+    ) -> stats_aggregator::Direction {
+        match hook_source {
+            // XDP captures ingress (packets coming INTO the interface) = Download
+            Some(ebpf::HOOK_XDP) => {
+                tracing::debug!("Direction: DOWNLOAD (XDP hook) src={} dst={}", src_ip, dst_ip);
+                stats_aggregator::Direction::Incoming
+            }
+            // TC egress captures egress (packets leaving the interface) = Upload
+            Some(ebpf::HOOK_TC_EGRESS) => {
+                tracing::debug!("Direction: UPLOAD (TC egress hook) src={} dst={}", src_ip, dst_ip);
+                stats_aggregator::Direction::Outgoing
+            }
+            // Fallback to IP-based detection for pnet backend or unknown hooks
+            _ => {
+                let src_is_local = local_ips.contains(&src_ip);
+                let dst_is_local = local_ips.contains(&dst_ip);
+
+                if src_is_local && dst_is_local {
+                    tracing::debug!("LOCAL: src_ip={} (local) -> dst_ip={} (local)", src_ip, dst_ip);
+                    stats_aggregator::Direction::Local
+                } else if src_is_local {
+                    tracing::debug!("UPLOAD (IP-based): src_ip={} (local) -> dst_ip={} (remote)", src_ip, dst_ip);
+                    stats_aggregator::Direction::Outgoing
+                } else if dst_is_local {
+                    tracing::debug!("DOWNLOAD (IP-based): src_ip={} (remote) -> dst_ip={} (local)", src_ip, dst_ip);
+                    stats_aggregator::Direction::Incoming
+                } else {
+                    stats_aggregator::Direction::None
+                }
+            }
+        }
+    }
+
+    /// Calculate packet size in bits for bandwidth measurement.
+    ///
+    /// # Arguments
+    /// * `ipv4_packet` - The IPv4 packet
+    /// * `original_len` - Optional original packet length from eBPF (kernel wire length)
+    ///
+    /// # Returns
+    /// Packet size in bits
+    fn calculate_packet_size_bits(
+        ipv4_packet: &Ipv4Packet,
+        original_len: Option<u32>,
+    ) -> u128 {
+        if let Some(len) = original_len {
+            // eBPF path: use the accurate packet length from kernel
+            // This is the full packet size as seen on the wire
+            8 * len as u128
+        } else {
+            // pnet path: calculate from parsed payload
+            // Use IPv4 total length (includes IP header + data) plus Ethernet header (14 bytes)
+            // This ensures we count the full packet size on wire, matching eBPF behavior
+            ((ipv4_packet.get_total_length() as u128) + network::ETHERNET_HEADER_SIZE as u128) * 8
+        }
+    }
+
+    /// Create a TCP stat entry from an IPv4 packet.
+    ///
+    /// # Arguments
+    /// * `ipv4_packet` - The IPv4 packet containing TCP data
+    /// * `direction` - The packet direction
+    /// * `size_bits` - Packet size in bits
+    ///
+    /// # Returns
+    /// A StatItem if the TCP packet is valid, None otherwise
+    fn create_tcp_stat(
+        ipv4_packet: &Ipv4Packet,
+        direction: stats_aggregator::Direction,
+        size_bits: u128,
+    ) -> Option<stats_aggregator::StatItem> {
+        let message = TcpPacket::new(ipv4_packet.payload())?;
+        Some(stats_aggregator::StatItem {
+            key: stats_aggregator::StatKey {
+                direction,
+                src_port: message.get_source(),
+                dst_port: message.get_destination(),
+                src_ip: ipv4_packet.get_source(),
+                dst_ip: ipv4_packet.get_destination(),
+            },
+            value: stats_aggregator::StatValues {
+                size: size_bits,
+            },
+        })
+    }
+
+    /// Create a UDP stat entry from an IPv4 packet.
+    ///
+    /// # Arguments
+    /// * `ipv4_packet` - The IPv4 packet containing UDP data
+    /// * `direction` - The packet direction
+    /// * `size_bits` - Packet size in bits
+    ///
+    /// # Returns
+    /// A StatItem if the UDP packet is valid, None otherwise
+    fn create_udp_stat(
+        ipv4_packet: &Ipv4Packet,
+        direction: stats_aggregator::Direction,
+        size_bits: u128,
+    ) -> Option<stats_aggregator::StatItem> {
+        let datagram = UdpPacket::new(ipv4_packet.payload())?;
+        Some(stats_aggregator::StatItem {
+            key: stats_aggregator::StatKey {
+                direction,
+                src_port: datagram.get_source(),
+                dst_port: datagram.get_destination(),
+                src_ip: ipv4_packet.get_source(),
+                dst_ip: ipv4_packet.get_destination(),
+            },
+            value: stats_aggregator::StatValues {
+                size: size_bits,
+            },
+        })
     }
 
     /// Extract host information from an IPv4 packet.
@@ -461,91 +598,27 @@ impl Scanner {
 
         // Determine direction based on hook source (authoritative for eBPF)
         // or fall back to IP-based detection (for pnet backend)
-        let direction = match hook_source {
-            // XDP captures ingress (packets coming INTO the interface) = Download
-            Some(0) => {
-                tracing::debug!("Direction: DOWNLOAD (XDP hook) src={} dst={}", src_ip, dst_ip);
-                stats_aggregator::Direction::Incomming
-            }
-            // TC egress captures egress (packets leaving the interface) = Upload
-            Some(2) => {
-                tracing::debug!("Direction: UPLOAD (TC egress hook) src={} dst={}", src_ip, dst_ip);
-                stats_aggregator::Direction::Outgoing
-            }
-            // Fallback to IP-based detection for pnet backend or unknown hooks
-            _ => {
-                let src_is_local = local_ips.contains(&src_ip);
-                let dst_is_local = local_ips.contains(&dst_ip);
-
-                if src_is_local && dst_is_local {
-                    tracing::debug!("LOCAL: src_ip={} (local) -> dst_ip={} (local)", src_ip, dst_ip);
-                    stats_aggregator::Direction::Local
-                } else if src_is_local {
-                    tracing::debug!("UPLOAD (IP-based): src_ip={} (local) -> dst_ip={} (remote)", src_ip, dst_ip);
-                    stats_aggregator::Direction::Outgoing
-                } else if dst_is_local {
-                    tracing::debug!("DOWNLOAD (IP-based): src_ip={} (remote) -> dst_ip={} (local)", src_ip, dst_ip);
-                    stats_aggregator::Direction::Incomming
-                } else {
-                    stats_aggregator::Direction::None
-                }
-            }
-        };
+        let direction = Self::determine_packet_direction(src_ip, dst_ip, local_ips, hook_source);
 
         // Calculate packet size in bits for bandwidth
-        // For eBPF: use original_len from kernel (accurate wire length)
-        // For pnet: parse from packet payload (TCP/UDP payload only)
-        let size_bits: u128 = if let Some(len) = original_len {
-            // eBPF path: use the accurate packet length from kernel
-            // This is the full packet size as seen on the wire
-            let bits = 8 * len as u128;
-            tracing::info!("BANDWIDTH: original_len={} bytes -> {} bits ({} bytes) direction={:?}",
-                len, bits, len, direction);
-            bits
-        } else {
-            // pnet path: calculate from parsed payload
-            // Use IPv4 total length (includes IP header + data) plus Ethernet header (14 bytes)
-            // This ensures we count the full packet size on wire, matching eBPF behavior
-            let len = (ipv4_packet.get_total_length() as u128) + 14;
-            len * 8
-        };
+        let size_bits = Self::calculate_packet_size_bits(&ipv4_packet, original_len);
+
+        // Log bandwidth calculation for eBPF path
+        if original_len.is_some() {
+            tracing::info!(
+                "BANDWIDTH: original_len={} bytes -> {} bits direction={:?}",
+                original_len.unwrap(),
+                size_bits,
+                direction
+            );
+        }
 
         // Only create stat for TCP/UDP (need ports for the key)
-        let stat = match next_level_protocol {
-            IpNextHeaderProtocols::Tcp => {
-                let message = TcpPacket::new(ipv4_packet.payload())?;
-                Some(stats_aggregator::StatItem {
-                    key: stats_aggregator::StatKey {
-                        direction,
-                        src_port: message.get_source(),
-                        sdt_port: message.get_destination(),
-                        src_ip,
-                        dst_ip,
-                    },
-                    value: stats_aggregator::StatValues {
-                        size: size_bits,
-                    },
-                })
-            }
-            IpNextHeaderProtocols::Udp => {
-                let datagram = UdpPacket::new(ipv4_packet.payload())?;
-                Some(stats_aggregator::StatItem {
-                    key: stats_aggregator::StatKey {
-                        direction,
-                        src_port: datagram.get_source(),
-                        sdt_port: datagram.get_destination(),
-                        src_ip,
-                        dst_ip,
-                    },
-                    value: stats_aggregator::StatValues {
-                        size: size_bits,
-                    },
-                })
-            }
+        match next_level_protocol {
+            IpNextHeaderProtocols::Tcp => Self::create_tcp_stat(&ipv4_packet, direction, size_bits),
+            IpNextHeaderProtocols::Udp => Self::create_udp_stat(&ipv4_packet, direction, size_bits),
             _ => None,
-        };
-
-        stat
+        }
     }
 }
 

@@ -5,6 +5,7 @@ use std::{
     ops::{Add, AddAssign, Div},
 };
 
+use crate::constants::buffer;
 use itertools::Itertools;
 use ringbuf::{
     traits::{Consumer, Observer, RingBuffer},
@@ -24,13 +25,13 @@ pub struct StatsAggregator {
 
 impl StatsAggregator {
     fn new() -> Self {
-        Self::new_with_window_size(10)
+        Self::new_with_window_size(buffer::DEFAULT_STATS_WINDOW_SIZE)
     }
 
     fn new_with_window_size(window: usize) -> Self {
         Self {
             speed_buffer_: HeapRb::new(window),
-            stat_keys_buffer_: HeapRb::new(100),
+            stat_keys_buffer_: HeapRb::new(buffer::DEFAULT_STATS_KEYS_BUFFER_SIZE),
             stats_buffer: HeapRb::new(window),
             pairs_buffer: HeapRb::new(window),
             hosts_buffer: HeapRb::new(window),
@@ -46,7 +47,7 @@ impl StatsAggregator {
                 Direction::Outgoing => {
                     vec![acc[0] + si, acc[1], acc[2], acc[3]]
                 }
-                Direction::Incomming => {
+                Direction::Incoming => {
                     vec![acc[0], acc[1] + si, acc[2], acc[3]]
                 }
                 Direction::Local => {
@@ -76,7 +77,7 @@ impl StatsAggregator {
             item.iter().for_each(|(k, v)| {
                 let (mut src, mut dst) = (k.src_ip, k.dst_ip);
                 let is_local = k.direction == Direction::Local;
-                if Direction::Incomming == k.direction || (is_local && src > dst) {
+                if Direction::Incoming == k.direction || (is_local && src > dst) {
                     (src, dst) = (dst, src);
                 }
                 let pair = IpPair {
@@ -89,7 +90,7 @@ impl StatsAggregator {
                     Direction::Outgoing => {
                         speed_pair_to_add.output += v.size;
                     }
-                    Direction::Incomming => {
+                    Direction::Incoming => {
                         speed_pair_to_add.input += v.size;
                     }
                     Direction::Local => {
@@ -290,7 +291,7 @@ impl Speed {
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct StatKey {
     pub src_port: u16,
-    pub sdt_port: u16,
+    pub dst_port: u16,
     pub src_ip: Ipv4Addr,
     pub dst_ip: Ipv4Addr,
     pub direction: Direction,
@@ -300,7 +301,7 @@ pub struct StatKey {
 pub enum Direction {
     None,
     Outgoing,
-    Incomming,
+    Incoming,
     Local,
 }
 
