@@ -1,23 +1,19 @@
 use std::io;
 
-use logging::initialize_logging;
 use ratatui::{backend::CrosstermBackend, Terminal};
-use scanner::Scanner;
 
-use crate::{
-    app::{App, AppResult},
+// Import from the library (core business logic)
+use netui::{
+    backend::BackendType,
+    error::AppResult,
     event::{Event, EventHandler},
-    tui::Tui,
+    scanner::Scanner,
 };
 
-pub mod app;
-pub mod event;
-pub mod hosts_table;
-pub mod logging;
-pub mod scanner;
-pub mod stats_aggregator;
-pub mod tui;
-pub mod ui;
+// Import from the binary-only UI module
+use crate::tui_mod::{app::App, logging::initialize_logging, tui::Tui};
+
+mod tui_mod;
 
 use clap::Parser;
 
@@ -28,7 +24,11 @@ struct Args {
     /// Name of the interface to watch
     #[arg(short, long)]
     name: String,
+    /// Backend to use for packet capture
+    #[arg(long, short = 'b', default_value_t, value_enum)]
+    backend: BackendType,
 }
+
 #[tokio::main]
 async fn main() -> AppResult<()> {
     let args = Args::parse();
@@ -40,13 +40,16 @@ async fn main() -> AppResult<()> {
     let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
     let mut tui = Tui::new(terminal);
+
+    // IMPORTANT: Initialize terminal (raw mode) BEFORE creating EventHandler,
+    // because EventStream requires the terminal to be in raw mode.
+    tui.init()?;
+
     let mut events = EventHandler::new(250);
-    let scanner = Scanner::new(events.get_sender_clone(), interface_name)?;
+    let scanner = Scanner::new(events.get_sender_clone(), interface_name, args.backend)?;
 
     // Create an application.
     let mut app = App::new(scanner)?;
-
-    tui.init()?;
     // Start the main loop.
     while app.running {
         // Render the user interface.
@@ -62,6 +65,9 @@ async fn main() -> AppResult<()> {
     }
 
     // Exit the user interface.
+    // Explicitly drop the scanner before exiting the TUI to ensure
+    // background tasks are cancelled before terminal restoration
+    drop(app);
     tui.exit()?;
     Ok(())
 }

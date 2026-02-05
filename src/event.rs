@@ -1,12 +1,14 @@
-use std::time::Duration;
+use std::{net::Ipv4Addr, time::Duration};
 
 use crossterm::event::{Event as CrosstermEvent, KeyEvent, MouseEvent};
 use futures::{FutureExt, StreamExt};
 use tokio::sync::mpsc;
 
 use crate::{
-    app::{AppResult, Host},
-    stats_aggregator::StatsMap,
+    error::{AppResult, NetuiError},
+    host::Host,
+    stats::StatsMap,
+    types::MacAddr,
 };
 
 /// Terminal events.
@@ -31,6 +33,33 @@ pub enum ScannerEvent {
     InterfaceName(String),
     BeginScan,
     Complete,
+    HostnameFound(Ipv4Addr, String),
+    /// Security alert for MAC address change detection
+    MacChanged(Ipv4Addr, MacAddr, MacAddr),
+}
+
+/// Security alert for tracking potential security issues.
+/// These are generated in the scanner and forwarded to the UI.
+#[derive(Clone, Debug)]
+pub struct SecurityAlert {
+    /// Type of security alert
+    pub alert_type: SecurityAlertType,
+    /// IP address associated with the alert
+    pub ipv4: Ipv4Addr,
+    /// When the alert was generated
+    pub timestamp: chrono::DateTime<chrono::Local>,
+}
+
+/// Types of security alerts that can be generated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SecurityAlertType {
+    /// MAC address changed for the same IP (potential ARP spoofing)
+    MacChanged {
+        /// Previous MAC address
+        old_mac: MacAddr,
+        /// New MAC address
+        new_mac: MacAddr,
+    },
 }
 
 /// Terminal event handler.
@@ -38,9 +67,9 @@ pub enum ScannerEvent {
 #[derive(Debug)]
 pub struct EventHandler {
     /// Event sender channel.
-    sender: mpsc::UnboundedSender<Event>,
+    sender: mpsc::Sender<Event>,
     /// Event receiver channel.
-    receiver: mpsc::UnboundedReceiver<Event>,
+    receiver: mpsc::Receiver<Event>,
     /// Event handler thread.
     handler: tokio::task::JoinHandle<()>,
 }
@@ -50,7 +79,9 @@ impl EventHandler {
     /// Constructs a new instance of [`EventHandler`].
     pub fn new(tick_rate: u64) -> Self {
         let tick_rate = Duration::from_millis(tick_rate);
-        let (sender, receiver) = mpsc::unbounded_channel();
+        // Bounded channel with capacity 1000 to prevent DoS via OOM during event floods
+        const EVENT_CHANNEL_CAPACITY: usize = 1000;
+        let (sender, receiver) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let sender_clone = sender.clone();
         let handler = tokio::spawn(async move {
             let mut reader = crossterm::event::EventStream::new();
@@ -63,20 +94,32 @@ impl EventHandler {
                     break;
                   }
                   _ = tick_delay => {
-                    sender_clone.send(Event::Tick).unwrap();
+                    if let Err(e) = sender_clone.send(Event::Tick).await {
+                      tracing::error!("Failed to send Tick event: {}", e);
+                      break;
+                    }
                   }
                   Some(Ok(evt)) = crossterm_event => {
                     match evt {
                       CrosstermEvent::Key(key) => {
                         if key.kind == crossterm::event::KeyEventKind::Press {
-                          sender_clone.send(Event::Key(key)).unwrap();
+                          if let Err(e) = sender_clone.send(Event::Key(key)).await {
+                            tracing::error!("Failed to send Key event: {}", e);
+                            break;
+                          }
                         }
                       },
                       CrosstermEvent::Mouse(mouse) => {
-                        sender_clone.send(Event::Mouse(mouse)).unwrap();
+                        if let Err(e) = sender_clone.send(Event::Mouse(mouse)).await {
+                          tracing::error!("Failed to send Mouse event: {}", e);
+                          break;
+                        }
                       },
                       CrosstermEvent::Resize(x, y) => {
-                        sender_clone.send(Event::Resize(x, y)).unwrap();
+                        if let Err(e) = sender_clone.send(Event::Resize(x, y)).await {
+                          tracing::error!("Failed to send Resize event: {}", e);
+                          break;
+                        }
                       },
                       CrosstermEvent::FocusLost => {
                       },
@@ -101,16 +144,10 @@ impl EventHandler {
     /// This function will always block the current thread if
     /// there is no data available and it's possible for more data to be sent.
     pub async fn next(&mut self) -> AppResult<Event> {
-        self.receiver
-            .recv()
-            .await
-            .ok_or(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "This is an IO error",
-            )))
+        self.receiver.recv().await.ok_or(NetuiError::ChannelClosed)
     }
 
-    pub fn get_sender_clone(&self) -> mpsc::UnboundedSender<Event> {
+    pub fn get_sender_clone(&self) -> mpsc::Sender<Event> {
         self.sender.clone()
     }
 }
